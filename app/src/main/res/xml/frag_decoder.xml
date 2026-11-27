@@ -31,12 +31,6 @@
 
         <CheckBoxPreference
             app:defaultValue="false"
-            app:key="swdecoder_local"
-            app:summary="强制本地视频使用 FFmpeg 软解"
-            app:title="本地视频软件解码" />
-
-        <CheckBoxPreference
-            app:defaultValue="false"
             app:key="swdecoder_net"
             app:summary="强制网络视频使用 FFmpeg 软解"
             app:title="网络视频软件解码" />

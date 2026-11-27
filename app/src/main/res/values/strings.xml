@@ -212,4 +212,28 @@
     <!-- File picker -->
     <string name="nnf_name">Name</string>
     <string name="nnf_permission_external_write_denied">Permission to access file system denied</string>
+    <!-- Pure home (MX style) -->
+    <string name="home_title_folders">文件夹</string>
+    <string name="home_title_all">所有视频</string>
+    <string name="home_title_mine">我的</string>
+    <string name="home_nav_local">本地</string>
+    <string name="home_nav_all">所有</string>
+    <string name="home_nav_mine">我的</string>
+    <string name="home_back">返回</string>
+    <string name="home_view_toggle">切换视图</string>
+    <string name="home_search_hint">搜索视频</string>
+    <string name="home_no_videos">没有找到视频</string>
+    <string name="home_need_permission">需要媒体权限才能列出视频</string>
+    <string name="home_videos_count">%1$d 个视频</string>
+    <string name="home_mine_settings">设置</string>
+    <string name="home_mine_settings_sub">播放器、解码器、字幕等</string>
+    <string name="home_mine_open_file">打开文件</string>
+    <string name="home_mine_open_file_sub">从文件管理器选择视频</string>
+    <string name="home_mine_open_url">打开网络串流</string>
+    <string name="home_mine_open_url_sub">输入视频链接播放</string>
+    <string name="home_mine_open_doc_tree">打开文档树</string>
+    <string name="home_mine_open_doc_tree_sub">浏览文件夹打开视频</string>
+    <string name="home_mine_about">关于</string>
+    <string name="home_mine_about_sub">Pure Player · 基于 mpv 播放核心</string>
+    <string name="home_about_text">Pure Player\n版本 %1$s\n\n基于 mpv 播放核心</string>
 </resources>

@@ -5,29 +5,44 @@ import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ContentUris
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
+import android.widget.ImageView
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * MX-style home screen: folder list first, two-level navigation.
+ *
+ * Tabs (bottom nav): Local (folders) / All (flat video list) / Mine (settings & about).
+ * Top bar: title + All / Search / List-grid toggle.
+ * Tapping a folder opens its videos; tapping a video plays it in PurePlayerActivity.
+ */
 class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private lateinit var binding: FragmentMainScreenBinding
 
@@ -37,7 +52,20 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private lateinit var permissionLauncher: ActivityResultLauncher<String>
 
     private var lastPath = ""
-    private val mediaAdapter = MediaAdapter { video -> playFile(video.uri) }
+
+    private var allVideos: List<VideoItem> = emptyList()
+    private var folders: List<FolderItem> = emptyList()
+
+    private var currentTab = Tab.LOCAL
+    private var currentFolder: String? = null
+    private var query = ""
+    private var isGrid = false
+
+    private val adapter = HomeAdapter(
+        onFolderClick = { folder -> openFolder(folder.name) },
+        onVideoClick = { video -> playFile(video.uri) },
+        onMineClick = { action -> onMineAction(action) }
+    )
 
     private val mediaPermission: String
         get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -86,7 +114,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
             Log.v(TAG, "returned from player ($it)")
         }
         permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) loadMedia() else showEmpty("需要媒体权限才能列出视频")
+            if (granted) loadMedia() else refresh()
         }
     }
 
@@ -95,43 +123,41 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
         Utils.handleInsetsAsPadding(binding.root)
 
-        binding.docBtn.setOnClickListener {
-            try {
-                documentTreeOpener.launch(null)
-            } catch (e: ActivityNotFoundException) {
-                // Android TV doesn't come with a document picker and certain versions just throw
-                // instead of handling this gracefully
-                binding.docBtn.isEnabled = false
+        // top bar
+        binding.backBtn.setOnClickListener { goBackToFolders() }
+        binding.allBtn.setOnClickListener { switchTab(Tab.ALL) }
+        binding.searchBtn.setOnClickListener { toggleSearch() }
+        binding.viewBtn.setOnClickListener { toggleViewMode() }
+        binding.searchBox.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                query = s?.toString()?.trim() ?: ""
+                refresh()
             }
-        }
-        binding.urlBtn.setOnClickListener {
-            val helper = Utils.OpenUrlDialog(requireContext())
-            with (helper) {
-                builder.setPositiveButton(R.string.dialog_ok) { _, _ ->
-                    playFile(helper.text)
-                }
-                builder.setNegativeButton(R.string.dialog_cancel) { dialog, _ -> dialog.cancel() }
-                create().show()
-            }
-        }
-        binding.filepickerBtn.setOnClickListener {
-            val i = Intent(context, FilePickerActivity::class.java)
-            i.putExtra("skip", FilePickerActivity.FILE_PICKER)
-            i.putExtra("allow_dir", true)
-            if (lastPath != "")
-                i.putExtra("default_path", lastPath)
-            filePickerLauncher.launch(i)
-        }
-        binding.settingsBtn.setOnClickListener {
-            startActivity(Intent(context, PureSettingsActivity::class.java))
-        }
+        })
 
-        if (BuildConfig.DEBUG) {
-            binding.settingsBtn.setOnLongClickListener { showDebugMenu(); true }
-        }
+        // bottom nav
+        binding.navLocal.setOnClickListener { switchTab(Tab.LOCAL) }
+        binding.navAll.setOnClickListener { switchTab(Tab.ALL) }
+        binding.navMine.setOnClickListener { switchTab(Tab.MINE) }
 
+        // list
         binding.mediaList.layoutManager = LinearLayoutManager(requireContext())
-        binding.mediaList.adapter = mediaAdapter
+        binding.mediaList.adapter = adapter
+
+        // back: folder detail -> folder list, otherwise let the activity handle it
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (currentFolder != null) {
+                        goBackToFolders()
+                    } else {
+                        isEnabled = false
+                        requireActivity().onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            })
 
         ensurePermissionAndLoad()
     }
@@ -150,10 +176,199 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         else permissionLauncher.launch(mediaPermission)
     }
 
-    private fun showEmpty(message: String) {
-        binding.mediaList.isVisible = false
-        binding.emptyView.isVisible = true
-        binding.emptyView.text = message
+    private fun switchTab(tab: Tab) {
+        if (currentTab == tab && currentFolder == null) return
+        currentTab = tab
+        currentFolder = null
+        clearSearch()
+        refresh()
+    }
+
+    private fun openFolder(name: String) {
+        currentFolder = name
+        clearSearch()
+        refresh()
+    }
+
+    private fun goBackToFolders() {
+        currentFolder = null
+        refresh()
+    }
+
+    private fun clearSearch() {
+        query = ""
+        binding.searchBox.setText("")
+        binding.searchBox.isVisible = false
+    }
+
+    private fun toggleSearch() {
+        val show = !binding.searchBox.isVisible
+        binding.searchBox.isVisible = show
+        if (show) {
+            binding.searchBox.requestFocus()
+            val imm = requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(binding.searchBox, InputMethodManager.SHOW_IMPLICIT)
+        } else {
+            query = ""
+            binding.searchBox.setText("")
+            refresh()
+        }
+    }
+
+    private fun toggleViewMode() {
+        isGrid = !isGrid
+        binding.mediaList.layoutManager =
+            if (isGrid) GridLayoutManager(requireContext(), 2)
+            else LinearLayoutManager(requireContext())
+        binding.viewBtn.setImageResource(if (isGrid) R.drawable.ic_list else R.drawable.ic_grid)
+    }
+
+    private fun refresh() {
+        binding.titleText.text = when {
+            currentTab == Tab.MINE -> getString(R.string.home_title_mine)
+            currentTab == Tab.ALL -> getString(R.string.home_title_all)
+            currentFolder != null -> currentFolder
+            else -> getString(R.string.home_title_folders)
+        }
+        binding.backBtn.isVisible = currentFolder != null && currentTab == Tab.LOCAL
+
+        val items = buildItems()
+        adapter.submit(items)
+
+        if (items.isEmpty()) {
+            binding.mediaList.isVisible = false
+            binding.emptyView.isVisible = true
+            binding.emptyView.text = if (!hasMediaPermission() && currentTab != Tab.MINE) {
+                getString(R.string.home_need_permission)
+            } else {
+                getString(R.string.home_no_videos)
+            }
+        } else {
+            binding.mediaList.isVisible = true
+            binding.emptyView.isVisible = false
+        }
+
+        updateBottomNav()
+    }
+
+    private fun updateBottomNav() {
+        val selected = Color.parseColor(ACCENT_BLUE)
+        val normal = Color.parseColor(NAV_NORMAL)
+        binding.navLocalIcon.setColorFilter(if (currentTab == Tab.LOCAL) selected else normal)
+        binding.navLocalLabel.setTextColor(if (currentTab == Tab.LOCAL) selected else normal)
+        binding.navAllIcon.setColorFilter(if (currentTab == Tab.ALL) selected else normal)
+        binding.navAllLabel.setTextColor(if (currentTab == Tab.ALL) selected else normal)
+        binding.navMineIcon.setColorFilter(if (currentTab == Tab.MINE) selected else normal)
+        binding.navMineLabel.setTextColor(if (currentTab == Tab.MINE) selected else normal)
+    }
+
+    private fun buildItems(): List<HomeListItem> {
+        return when (currentTab) {
+            Tab.MINE -> mineItems()
+            Tab.ALL -> {
+                val list = if (query.isEmpty()) allVideos
+                else allVideos.filter { it.name.contains(query, ignoreCase = true) }
+                list.map { HomeListItem.Video(it) }
+            }
+            Tab.LOCAL -> {
+                val folder = currentFolder
+                if (folder == null) {
+                    val list = if (query.isEmpty()) folders
+                    else folders.filter { it.name.contains(query, ignoreCase = true) }
+                    list.map { HomeListItem.Folder(it) }
+                } else {
+                    val target = folders.find { it.name == folder }
+                    val list = target?.videos ?: emptyList()
+                    val filtered = if (query.isEmpty()) list
+                    else list.filter { it.name.contains(query, ignoreCase = true) }
+                    filtered.map { HomeListItem.Video(it) }
+                }
+            }
+        }
+    }
+
+    private fun mineItems(): List<HomeListItem> {
+        return listOf(
+            HomeListItem.Mine(
+                MineAction.SETTINGS,
+                getString(R.string.home_mine_settings),
+                getString(R.string.home_mine_settings_sub),
+                R.drawable.ic_settings
+            ),
+            HomeListItem.Mine(
+                MineAction.OPEN_FILE,
+                getString(R.string.home_mine_open_file),
+                getString(R.string.home_mine_open_file_sub),
+                R.drawable.ic_folder
+            ),
+            HomeListItem.Mine(
+                MineAction.OPEN_URL,
+                getString(R.string.home_mine_open_url),
+                getString(R.string.home_mine_open_url_sub),
+                R.drawable.ic_video
+            ),
+            HomeListItem.Mine(
+                MineAction.OPEN_DOC_TREE,
+                getString(R.string.home_mine_open_doc_tree),
+                getString(R.string.home_mine_open_doc_tree_sub),
+                R.drawable.ic_folder
+            ),
+            HomeListItem.Mine(
+                MineAction.ABOUT,
+                getString(R.string.home_mine_about),
+                getString(R.string.home_mine_about_sub),
+                R.drawable.ic_settings
+            )
+        )
+    }
+
+    private fun onMineAction(action: MineAction) {
+        when (action) {
+            MineAction.SETTINGS -> {
+                startActivity(Intent(context, PureSettingsActivity::class.java))
+            }
+            MineAction.OPEN_FILE -> {
+                val i = Intent(context, FilePickerActivity::class.java)
+                i.putExtra("skip", FilePickerActivity.FILE_PICKER)
+                i.putExtra("allow_dir", true)
+                if (lastPath != "") i.putExtra("default_path", lastPath)
+                filePickerLauncher.launch(i)
+            }
+            MineAction.OPEN_URL -> {
+                val helper = Utils.OpenUrlDialog(requireContext())
+                with (helper) {
+                    builder.setPositiveButton(R.string.dialog_ok) { _, _ ->
+                        playFile(helper.text)
+                    }
+                    builder.setNegativeButton(R.string.dialog_cancel) { dialog, _ -> dialog.cancel() }
+                    create().show()
+                }
+            }
+            MineAction.OPEN_DOC_TREE -> {
+                try {
+                    documentTreeOpener.launch(null)
+                } catch (e: ActivityNotFoundException) {
+                    // Android TV doesn't come with a document picker and certain versions just throw
+                    // instead of handling this gracefully
+                }
+            }
+            MineAction.ABOUT -> showAbout()
+        }
+    }
+
+    private fun showAbout() {
+        val version = try {
+            val pi = requireContext().packageManager
+                .getPackageInfo(requireContext().packageName, 0)
+            pi.versionName ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.home_mine_about)
+            .setMessage(getString(R.string.home_about_text, version))
+            .setPositiveButton(R.string.dialog_ok, null)
+            .show()
     }
 
     private fun loadMedia() {
@@ -188,25 +403,21 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 val bucket = cursor.getString(bucketCol)
                 val folder = folderOf(data, bucket)
                 val contentUri = ContentUris.withAppendedId(uri, id).toString()
-                videos.add(VideoItem(id, name, contentUri, folder, duration, dateAdded, size))
+                videos.add(VideoItem(id, name, data, contentUri, folder, duration, dateAdded, size))
             }
         }
-        if (videos.isEmpty()) {
-            mediaAdapter.submit(emptyList())
-            showEmpty("没有找到视频")
-            return
-        }
-        binding.mediaList.isVisible = true
-        binding.emptyView.isVisible = false
-        // group by folder; folders ordered by their newest video first
+        allVideos = videos.sortedByDescending { it.dateAdded }
+        val nowSec = System.currentTimeMillis() / 1000
+        val newThreshold = nowSec - NEW_WINDOW_SEC
         val grouped = videos.groupBy { it.folder }
-        val folders = grouped.entries.sortedByDescending { (_, list) -> list.maxOf { it.dateAdded } }
-        val items = mutableListOf<MediaListItem>()
-        for ((folder, list) in folders) {
-            items.add(MediaListItem.Header(folder, list.size))
-            list.sortedByDescending { it.dateAdded }.forEach { items.add(MediaListItem.Video(it)) }
-        }
-        mediaAdapter.submit(items)
+        folders = grouped.entries
+            .sortedByDescending { (_, list) -> list.maxOf { it.dateAdded } }
+            .map { (name, list) ->
+                val sorted = list.sortedByDescending { it.dateAdded }
+                val newCount = sorted.count { it.dateAdded >= newThreshold }
+                FolderItem(name, sorted.size, newCount, sorted)
+            }
+        refresh()
     }
 
     private fun folderOf(data: String, bucket: String?): String {
@@ -231,34 +442,23 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         playerLauncher.launch(i)
     }
 
-    private fun showDebugMenu() {
-        assert(BuildConfig.DEBUG)
-        val context = requireContext()
-        with (AlertDialog.Builder(context)) {
-            setItems(DEBUG_ACTIVITIES) { dialog, idx ->
-                dialog.dismiss()
-                val intent = Intent(Intent.ACTION_MAIN)
-                intent.setClassName(context, "${context.packageName}.${DEBUG_ACTIVITIES[idx]}")
-                startActivity(intent)
-            }
-            create().show()
-        }
-    }
-
     companion object {
         private const val TAG = "mpv"
-
-        // list of debug or testing activities that can be launched
-        private val DEBUG_ACTIVITIES = arrayOf(
-            "IntentTestActivity",
-            "CodecInfoActivity"
-        )
+        private const val ACCENT_BLUE = "#3c8cf0"
+        private const val NAV_NORMAL = "#757575"
+        private const val NEW_WINDOW_SEC = 3 * 24 * 3600L
     }
 }
 
-private data class VideoItem(
+private enum class Tab { LOCAL, ALL, MINE }
+
+private enum class MineAction { SETTINGS, OPEN_FILE, OPEN_URL, OPEN_DOC_TREE, ABOUT }
+
+/** Shared with the private vault (VaultStore) — kept public on purpose. */
+data class VideoItem(
     val id: Long,
     val name: String,
+    val path: String,
     val uri: String,
     val folder: String,
     val durationMs: Long,
@@ -266,18 +466,28 @@ private data class VideoItem(
     val sizeBytes: Long
 )
 
-private sealed class MediaListItem {
-    data class Header(val folder: String, val count: Int) : MediaListItem()
-    data class Video(val item: VideoItem) : MediaListItem()
+private data class FolderItem(
+    val name: String,
+    val count: Int,
+    val newCount: Int,
+    val videos: List<VideoItem>
+)
+
+private sealed class HomeListItem {
+    data class Folder(val item: FolderItem) : HomeListItem()
+    data class Video(val item: VideoItem) : HomeListItem()
+    data class Mine(val action: MineAction, val title: String, val subtitle: String, val iconRes: Int) : HomeListItem()
 }
 
-private class MediaAdapter(
-    private val onVideoClick: (VideoItem) -> Unit
+private class HomeAdapter(
+    private val onFolderClick: (FolderItem) -> Unit,
+    private val onVideoClick: (VideoItem) -> Unit,
+    private val onMineClick: (MineAction) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    private var items: List<MediaListItem> = emptyList()
+    private var items: List<HomeListItem> = emptyList()
 
-    fun submit(newItems: List<MediaListItem>) {
+    fun submit(newItems: List<HomeListItem>) {
         items = newItems
         notifyDataSetChanged()
     }
@@ -285,32 +495,60 @@ private class MediaAdapter(
     override fun getItemCount(): Int = items.size
 
     override fun getItemViewType(position: Int): Int = when (items[position]) {
-        is MediaListItem.Header -> TYPE_HEADER
-        is MediaListItem.Video -> TYPE_VIDEO
+        is HomeListItem.Folder -> TYPE_FOLDER
+        is HomeListItem.Video -> TYPE_VIDEO
+        is HomeListItem.Mine -> TYPE_MINE
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
-        return if (viewType == TYPE_HEADER) {
-            val v = inflater.inflate(R.layout.item_media_folder, parent, false)
-            HeaderViewHolder(v)
-        } else {
-            val v = inflater.inflate(R.layout.item_media_video, parent, false)
-            VideoViewHolder(v, onVideoClick)
+        return when (viewType) {
+            TYPE_FOLDER -> {
+                val v = inflater.inflate(R.layout.item_media_folder, parent, false)
+                FolderViewHolder(v, onFolderClick)
+            }
+            TYPE_VIDEO -> {
+                val v = inflater.inflate(R.layout.item_media_video, parent, false)
+                VideoViewHolder(v, onVideoClick)
+            }
+            else -> {
+                val v = inflater.inflate(R.layout.item_mine, parent, false)
+                MineViewHolder(v, onMineClick)
+            }
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
-            is MediaListItem.Header -> (holder as HeaderViewHolder).bind(item)
-            is MediaListItem.Video -> (holder as VideoViewHolder).bind(item.item)
+            is HomeListItem.Folder -> (holder as FolderViewHolder).bind(item.item)
+            is HomeListItem.Video -> (holder as VideoViewHolder).bind(item.item)
+            is HomeListItem.Mine -> (holder as MineViewHolder).bind(item)
         }
     }
 
-    private class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    private class FolderViewHolder(
+        view: View,
+        private val onFolderClick: (FolderItem) -> Unit
+    ) : RecyclerView.ViewHolder(view) {
         private val folderName: TextView = view.findViewById(R.id.folderName)
-        fun bind(header: MediaListItem.Header) {
-            folderName.text = "${header.folder} (${header.count})"
+        private val folderCount: TextView = view.findViewById(R.id.folderCount)
+        private val folderBadge: TextView = view.findViewById(R.id.folderBadge)
+        private var folder: FolderItem? = null
+
+        init {
+            view.setOnClickListener { folder?.let(onFolderClick) }
+        }
+
+        fun bind(item: FolderItem) {
+            folder = item
+            folderName.text = item.name
+            folderCount.text = itemView.context.getString(R.string.home_videos_count, item.count)
+            if (item.newCount > 0) {
+                folderBadge.isVisible = true
+                folderBadge.text = item.newCount.toString()
+            } else {
+                folderBadge.isVisible = false
+            }
         }
     }
 
@@ -333,9 +571,31 @@ private class MediaAdapter(
         }
     }
 
+    private class MineViewHolder(
+        view: View,
+        private val onMineClick: (MineAction) -> Unit
+    ) : RecyclerView.ViewHolder(view) {
+        private val mineIcon: ImageView = view.findViewById(R.id.mineIcon)
+        private val mineTitle: TextView = view.findViewById(R.id.mineTitle)
+        private val mineSubtitle: TextView = view.findViewById(R.id.mineSubtitle)
+        private var action: MineAction? = null
+
+        init {
+            view.setOnClickListener { action?.let(onMineClick) }
+        }
+
+        fun bind(item: HomeListItem.Mine) {
+            action = item.action
+            mineIcon.setImageResource(item.iconRes)
+            mineTitle.text = item.title
+            mineSubtitle.text = item.subtitle
+        }
+    }
+
     companion object {
-        private const val TYPE_HEADER = 0
+        private const val TYPE_FOLDER = 0
         private const val TYPE_VIDEO = 1
+        private const val TYPE_MINE = 2
     }
 }
 

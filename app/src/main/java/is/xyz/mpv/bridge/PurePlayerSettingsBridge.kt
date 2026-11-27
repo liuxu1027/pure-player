@@ -80,7 +80,7 @@ class PurePlayerSettingsBridge(
             "audio_focus", "double_tap_back_key", "quick_zoom",
             "sticky_video", "sticky_audio",
             // frag_decoder.xml
-            "omxdecoder_local", "omxdecoder_net", "swdecoder_local", "swdecoder_net",
+            "omxdecoder_local", "omxdecoder_net", "swdecoder_net",
             "correct_hw_aspect_ratio", "core_limit", "use_speedup_tricks", "default_deinterlacer",
             // frag_audio.xml
             "audio_player", "volume_boost", "audio_language", "audio_delay",
@@ -142,11 +142,10 @@ class PurePlayerSettingsBridge(
             // ========================
             // 2. frag_decoder.xml
             // ========================
-            "omxdecoder_local", "omxdecoder_net", "swdecoder_local", "swdecoder_net" -> {
-                // 简化策略：若强制软件解码则关闭 hwdec，否则优先 mediacodec-copy（兼容性更好）
-                val forceSw = prefs.getBoolean("swdecoder_local", false)
+            "omxdecoder_local", "omxdecoder_net", "swdecoder_net" -> {
+                // 硬解默认开启（mediacodec-copy，兼容性更好）；关闭本地硬解则回落到 mpv 内置软解
                 val useHw = prefs.getBoolean("omxdecoder_local", true)
-                val hwdec = if (forceSw || !useHw) "no" else "mediacodec-copy"
+                val hwdec = if (!useHw) "no" else "mediacodec-copy"
                 mpv.setPropertyString("hwdec", hwdec)
             }
 
