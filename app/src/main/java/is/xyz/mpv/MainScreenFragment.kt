@@ -756,7 +756,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         // 过滤：隐藏文件/文件夹、.nomedia 文件夹（按弹窗“高级”里的开关）
         val showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false)
         val recognizeNomedia = prefs.getBoolean(KEY_RECOGNIZE_NOMEDIA, true)
-        var filtered = videos
+        var filtered: List<VideoItem> = videos
         if (!showHidden) {
             filtered = filtered.filter { !it.name.startsWith(".") && !it.folder.startsWith(".") }
         }
