@@ -117,7 +117,6 @@
     <string name="home_nav_all">所有</string>
     <string name="home_nav_mine">我的</string>
     <string name="home_back">返回</string>
-    <string name="home_view_toggle">切换视图</string>
     <string name="home_search_hint">搜索视频</string>
     <string name="home_no_videos">没有找到视频</string>
     <string name="home_need_permission">需要媒体权限才能列出视频</string>
@@ -170,4 +169,35 @@
     <string name="pin_forgot_confirm">全部移回原处</string>
     <string name="pin_forgot_done">已把隐藏的视频全部移回原处，PIN 已清除</string>
     <string name="pin_forgot_partial">部分视频未能移回原处（%1$d 个），PIN 已清除，请到私密库里手动移出</string>
+
+    <!-- View / sort dialog (MX style) -->
+    <string name="home_view_sort">视图与排序</string>
+    <string name="vs_view_mode">视图模式</string>
+    <string name="vs_layout">布局</string>
+    <string name="vs_sort">排序</string>
+    <string name="vs_fields">字段</string>
+    <string name="vs_advanced">高级</string>
+    <string name="vs_all_folders">所有文件夹</string>
+    <string name="vs_files">文件</string>
+    <string name="vs_folders">文件夹</string>
+    <string name="vs_list">列表</string>
+    <string name="vs_grid">网格</string>
+    <string name="vs_sort_title">标题</string>
+    <string name="vs_sort_date">日期</string>
+    <string name="vs_sort_duration">长度</string>
+    <string name="vs_sort_size">大小</string>
+    <string name="vs_sort_path">路径</string>
+    <string name="vs_sort_asc">↑ A 到 Z</string>
+    <string name="vs_sort_desc">↓ Z 到 A</string>
+    <string name="vs_field_thumb">缩略图</string>
+    <string name="vs_field_duration">长度</string>
+    <string name="vs_field_ext">文件扩展名</string>
+    <string name="vs_field_path">路径</string>
+    <string name="vs_field_size">大小</string>
+    <string name="vs_field_date">日期</string>
+    <string name="vs_adv_length_on_thumb">在缩略图上显示长度</string>
+    <string name="vs_adv_show_hidden">显示隐藏文件和文件夹</string>
+    <string name="vs_adv_nomedia">识别 .nomedia</string>
+    <string name="vs_cancel">取消</string>
+    <string name="vs_done">完成</string>
 </resources>

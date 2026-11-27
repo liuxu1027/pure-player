@@ -16,12 +16,4 @@
         app:summary="在文件夹上显示最近新增视频的数量角标"
         app:title="显示“新视频”角标" />
 
-    <ListPreference
-        app:defaultValue="date_desc"
-        app:entries="@array/entries_home_sort_order"
-        app:entryValues="@array/values_home_sort_order"
-        app:key="home_sort_order"
-        app:title="排序方式"
-        app:useSimpleSummaryProvider="true" />
-
 </PreferenceScreen>

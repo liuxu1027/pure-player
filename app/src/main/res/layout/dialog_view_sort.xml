@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MX 风格的视图 / 排序弹窗：视图模式、布局、排序、字段、高级。
+     选项行（视图模式 / 布局 / 排序）由 MainScreenFragment 在代码里填充，
+     字段与高级直接用下面的 CheckBox / Switch。 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp"
+            android:text="@string/vs_view_mode"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/row_view_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp"
+            android:text="@string/vs_layout"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/row_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:background="?attr/colorControlNormal"
+            android:alpha="0.2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp"
+            android:text="@string/vs_sort"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/row_sort"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_sort_asc"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/vs_sort_asc" />
+
+            <Button
+                android:id="@+id/btn_sort_desc"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/vs_sort_desc" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:background="?attr/colorControlNormal"
+            android:alpha="0.2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp"
+            android:text="@string/vs_fields"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <GridLayout
+            android:id="@+id/grid_fields"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:columnCount="3">
+
+            <CheckBox
+                android:id="@+id/cb_field_thumb"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_thumb" />
+
+            <CheckBox
+                android:id="@+id/cb_field_duration"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_duration" />
+
+            <CheckBox
+                android:id="@+id/cb_field_ext"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_ext" />
+
+            <CheckBox
+                android:id="@+id/cb_field_path"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_path" />
+
+            <CheckBox
+                android:id="@+id/cb_field_size"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_size" />
+
+            <CheckBox
+                android:id="@+id/cb_field_date"
+                android:layout_width="0dp"
+                android:layout_columnWeight="1"
+                android:text="@string/vs_field_date" />
+        </GridLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:background="?attr/colorControlNormal"
+            android:alpha="0.2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp"
+            android:text="@string/vs_advanced"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/vs_adv_length_on_thumb"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/sw_show_length_on_thumb"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/vs_adv_show_hidden"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/sw_show_hidden"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/vs_adv_nomedia"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/sw_recognize_nomedia"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

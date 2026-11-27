@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <!-- Top bar: title + Open / All / Search / View toggle -->
+    <!-- Top bar: title + Search / View-and-sort (only these two, per user choice) -->
     <LinearLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
@@ -34,35 +34,6 @@
             android:textSize="20sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/openBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:textColor="?attr/colorControlNormal"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/allBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/home_nav_all"
-            android:textColor="?attr/colorControlNormal"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
         <ImageButton
             android:id="@+id/searchBtn"
             android:layout_width="48dp"
@@ -77,8 +48,8 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/home_view_toggle"
-            android:src="@drawable/ic_grid"
+            android:contentDescription="@string/home_view_sort"
+            android:src="@drawable/ic_list"
             android:tint="?attr/colorControlNormal" />
 
     </LinearLayout>

@@ -7,14 +7,41 @@
     android:paddingHorizontal="16dp"
     android:paddingVertical="10dp">
 
-    <ImageView
-        android:id="@+id/videoThumb"
+    <FrameLayout
+        android:id="@+id/videoThumbWrap"
         android:layout_width="48dp"
-        android:layout_height="36dp"
-        android:background="#1F1F1F"
-        android:scaleType="centerInside"
-        android:src="@drawable/ic_video"
-        android:tint="?attr/colorControlNormal" />
+        android:layout_height="36dp">
+
+        <ImageView
+            android:id="@+id/videoThumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#1F1F1F"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_video"
+            android:tint="?attr/colorControlNormal" />
+
+        <!-- 时长角标（“在缩略图上显示长度”开时显示） -->
+        <TextView
+            android:id="@+id/videoDurationBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:background="#CC000000"
+            android:paddingHorizontal="3dp"
+            android:paddingVertical="1dp"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp" />
+
+        <!-- 多选勾选标记（多选模式下选中时显示） -->
+        <ImageView
+            android:id="@+id/videoCheck"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="top|end"
+            android:src="@drawable/ic_check_circle"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

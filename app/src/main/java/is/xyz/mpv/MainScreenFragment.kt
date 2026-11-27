@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -17,11 +18,16 @@ import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -32,12 +38,34 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// 视图 / 排序弹窗与列表显示用的 SharedPreferences 键
+private const val KEY_VIEW_MODE = "home_view_mode"
+private const val KEY_DEFAULT_VIEW = "home_default_view"
+private const val KEY_SORT_KEY = "home_sort_key"
+private const val KEY_SORT_ASC = "home_sort_asc"
+private const val KEY_FIELD_THUMB = "home_field_thumb"
+private const val KEY_FIELD_DURATION = "home_field_duration"
+private const val KEY_FIELD_EXT = "home_field_ext"
+private const val KEY_FIELD_PATH = "home_field_path"
+private const val KEY_FIELD_SIZE = "home_field_size"
+private const val KEY_FIELD_DATE = "home_field_date"
+private const val KEY_SHOW_LENGTH_ON_THUMB = "home_show_length_on_thumb"
+private const val KEY_SHOW_HIDDEN = "home_show_hidden"
+private const val KEY_RECOGNIZE_NOMEDIA = "home_recognize_nomedia"
+private const val KEY_SHOW_NEW_BADGE = "home_show_new_badge"
+
+private const val VIEW_ALL_FOLDERS = "all_folders"
+private const val VIEW_FILES = "files"
+private const val VIEW_FOLDERS = "folders"
 
 /**
  * MX-style home screen: folder list first, two-level navigation.
@@ -48,6 +76,7 @@ import java.util.Locale
  */
 class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private lateinit var binding: FragmentMainScreenBinding
+    private lateinit var prefs: SharedPreferences
 
     private lateinit var documentTreeOpener: ActivityResultLauncher<Uri?>
     private lateinit var filePickerLauncher: ActivityResultLauncher<Intent>
@@ -155,16 +184,14 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         binding = FragmentMainScreenBinding.bind(view)
+        prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
 
         Utils.handleInsetsAsPadding(binding.root)
 
-        // top bar
+        // top bar: only Search + List (view/sort dialog)
         binding.backBtn.setOnClickListener { goBackToFolders() }
-        binding.openBtn.text = "+ 打开"
-        binding.openBtn.setOnClickListener { showOpenMenu() }
-        binding.allBtn.setOnClickListener { switchTab(Tab.ALL) }
         binding.searchBtn.setOnClickListener { toggleSearch() }
-        binding.viewBtn.setOnClickListener { toggleViewMode() }
+        binding.viewBtn.setOnClickListener { showViewSortDialog() }
         binding.searchBox.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -179,8 +206,10 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         binding.navAll.setOnClickListener { switchTab(Tab.ALL) }
         binding.navMine.setOnClickListener { switchTab(Tab.MINE) }
 
-        // list
-        binding.mediaList.layoutManager = LinearLayoutManager(requireContext())
+        // list: initial tab from view-mode pref, initial layout from default-view pref
+        currentTab = if (prefs.getString(KEY_VIEW_MODE, VIEW_ALL_FOLDERS) == VIEW_FILES) Tab.ALL else Tab.LOCAL
+        isGrid = prefs.getString(KEY_DEFAULT_VIEW, "list") == "grid"
+        applyLayoutMode()
         binding.mediaList.adapter = adapter
 
         // back: folder detail -> folder list, otherwise let the activity handle it
@@ -224,7 +253,8 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private fun openFolder(name: String) {
         currentFolder = name
         clearSearch()
-        refresh()
+        // 打开文件夹时重新查一遍媒体库，避免新视频没扫进来导致显示不全
+        loadMedia()
     }
 
     private fun goBackToFolders() {
@@ -252,12 +282,153 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         }
     }
 
-    private fun toggleViewMode() {
-        isGrid = !isGrid
+    private fun applyLayoutMode() {
         binding.mediaList.layoutManager =
             if (isGrid) GridLayoutManager(requireContext(), 2)
             else LinearLayoutManager(requireContext())
-        binding.viewBtn.setImageResource(if (isGrid) R.drawable.ic_list else R.drawable.ic_grid)
+    }
+
+    /** MX 风格的视图 / 排序弹窗（首页顶部“列表图标”打开） */
+    private fun showViewSortDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_view_sort, null)
+
+        // 弹窗内待定的选择，点“完成”才写入
+        var viewMode = prefs.getString(KEY_VIEW_MODE, VIEW_ALL_FOLDERS) ?: VIEW_ALL_FOLDERS
+        var layout = prefs.getString(KEY_DEFAULT_VIEW, "list") ?: "list"
+        var sortKey = prefs.getString(KEY_SORT_KEY, "date") ?: "date"
+        var sortAsc = prefs.getBoolean(KEY_SORT_ASC, false)
+
+        val rowViewMode = view.findViewById<LinearLayout>(R.id.row_view_mode)
+        val rowLayout = view.findViewById<LinearLayout>(R.id.row_layout)
+        val rowSort = view.findViewById<LinearLayout>(R.id.row_sort)
+        val btnAsc = view.findViewById<Button>(R.id.btn_sort_asc)
+        val btnDesc = view.findViewById<Button>(R.id.btn_sort_desc)
+
+        fun refreshOptionRows() {
+            rowViewMode.removeAllViews()
+            addOption(rowViewMode, R.drawable.ic_folder, getString(R.string.vs_all_folders), viewMode == VIEW_ALL_FOLDERS) { viewMode = VIEW_ALL_FOLDERS; refreshOptionRows() }
+            addOption(rowViewMode, R.drawable.ic_video, getString(R.string.vs_files), viewMode == VIEW_FILES) { viewMode = VIEW_FILES; refreshOptionRows() }
+            addOption(rowViewMode, R.drawable.ic_folder, getString(R.string.vs_folders), viewMode == VIEW_FOLDERS) { viewMode = VIEW_FOLDERS; refreshOptionRows() }
+
+            rowLayout.removeAllViews()
+            addOption(rowLayout, R.drawable.ic_list, getString(R.string.vs_list), layout == "list") { layout = "list"; refreshOptionRows() }
+            addOption(rowLayout, R.drawable.ic_grid, getString(R.string.vs_grid), layout == "grid") { layout = "grid"; refreshOptionRows() }
+
+            rowSort.removeAllViews()
+            val sortOptions = listOf(
+                Triple("title", R.drawable.ic_sort, getString(R.string.vs_sort_title)),
+                Triple("date", R.drawable.ic_calendar, getString(R.string.vs_sort_date)),
+                Triple("duration", R.drawable.ic_timer, getString(R.string.vs_sort_duration)),
+                Triple("size", R.drawable.ic_sd_card_white_24dp, getString(R.string.vs_sort_size)),
+                Triple("path", R.drawable.ic_folder, getString(R.string.vs_sort_path))
+            )
+            for ((key, icon, label) in sortOptions) {
+                addOption(rowSort, icon, label, sortKey == key) { sortKey = key; refreshOptionRows() }
+            }
+            updateSortDirectionButtons(btnAsc, btnDesc, sortAsc)
+        }
+
+        btnAsc.setOnClickListener { sortAsc = true; updateSortDirectionButtons(btnAsc, btnDesc, sortAsc) }
+        btnDesc.setOnClickListener { sortAsc = false; updateSortDirectionButtons(btnAsc, btnDesc, sortAsc) }
+
+        // 字段
+        val cbThumb = view.findViewById<CheckBox>(R.id.cb_field_thumb)
+        val cbDuration = view.findViewById<CheckBox>(R.id.cb_field_duration)
+        val cbExt = view.findViewById<CheckBox>(R.id.cb_field_ext)
+        val cbPath = view.findViewById<CheckBox>(R.id.cb_field_path)
+        val cbSize = view.findViewById<CheckBox>(R.id.cb_field_size)
+        val cbDate = view.findViewById<CheckBox>(R.id.cb_field_date)
+        cbThumb.isChecked = prefs.getBoolean(KEY_FIELD_THUMB, true)
+        cbDuration.isChecked = prefs.getBoolean(KEY_FIELD_DURATION, true)
+        cbExt.isChecked = prefs.getBoolean(KEY_FIELD_EXT, false)
+        cbPath.isChecked = prefs.getBoolean(KEY_FIELD_PATH, false)
+        cbSize.isChecked = prefs.getBoolean(KEY_FIELD_SIZE, true)
+        cbDate.isChecked = prefs.getBoolean(KEY_FIELD_DATE, true)
+
+        // 高级
+        val swLengthOnThumb = view.findViewById<Switch>(R.id.sw_show_length_on_thumb)
+        val swShowHidden = view.findViewById<Switch>(R.id.sw_show_hidden)
+        val swNomedia = view.findViewById<Switch>(R.id.sw_recognize_nomedia)
+        swLengthOnThumb.isChecked = prefs.getBoolean(KEY_SHOW_LENGTH_ON_THUMB, true)
+        swShowHidden.isChecked = prefs.getBoolean(KEY_SHOW_HIDDEN, false)
+        swNomedia.isChecked = prefs.getBoolean(KEY_RECOGNIZE_NOMEDIA, true)
+
+        refreshOptionRows()
+
+        AlertDialog.Builder(requireContext())
+            .setView(view)
+            .setNegativeButton(R.string.vs_cancel, null)
+            .setPositiveButton(R.string.vs_done) { _, _ ->
+                prefs.edit().apply {
+                    putString(KEY_VIEW_MODE, viewMode)
+                    putString(KEY_DEFAULT_VIEW, layout)
+                    putString(KEY_SORT_KEY, sortKey)
+                    putBoolean(KEY_SORT_ASC, sortAsc)
+                    putBoolean(KEY_FIELD_THUMB, cbThumb.isChecked)
+                    putBoolean(KEY_FIELD_DURATION, cbDuration.isChecked)
+                    putBoolean(KEY_FIELD_EXT, cbExt.isChecked)
+                    putBoolean(KEY_FIELD_PATH, cbPath.isChecked)
+                    putBoolean(KEY_FIELD_SIZE, cbSize.isChecked)
+                    putBoolean(KEY_FIELD_DATE, cbDate.isChecked)
+                    putBoolean(KEY_SHOW_LENGTH_ON_THUMB, swLengthOnThumb.isChecked)
+                    putBoolean(KEY_SHOW_HIDDEN, swShowHidden.isChecked)
+                    putBoolean(KEY_RECOGNIZE_NOMEDIA, swNomedia.isChecked)
+                }.apply()
+                isGrid = layout == "grid"
+                applyLayoutMode()
+                // 视图模式切页签（“文件”= 所有视频平铺，其余 = 文件夹）
+                switchTab(if (viewMode == VIEW_FILES) Tab.ALL else Tab.LOCAL)
+                loadMedia()
+            }
+            .show()
+    }
+
+    /** 弹窗里的一个图标 + 文字选项（选中态蓝色，未选中灰色） */
+    private fun addOption(
+        container: LinearLayout,
+        iconRes: Int,
+        label: String,
+        selected: Boolean,
+        onClick: () -> Unit
+    ) {
+        val ctx = container.context
+        val accent = Color.parseColor(ACCENT_BLUE)
+        val normal = Color.parseColor("#757575")
+        val item = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setPadding(4, 8, 4, 8)
+            isClickable = true
+            isFocusable = true
+            setBackgroundResource(android.R.drawable.list_selector_background)
+            setOnClickListener { onClick() }
+        }
+        val icon = ImageView(ctx).apply {
+            setImageResource(iconRes)
+            val size = (36 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size)
+            setColorFilter(if (selected) accent else normal)
+        }
+        val text = TextView(ctx).apply {
+            text = label
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(if (selected) accent else normal)
+            setPadding(0, 4, 0, 0)
+        }
+        item.addView(icon)
+        item.addView(text)
+        container.addView(item)
+    }
+
+    private fun updateSortDirectionButtons(btnAsc: Button, btnDesc: Button, asc: Boolean) {
+        val accent = Color.parseColor(ACCENT_BLUE)
+        val normal = Color.parseColor("#757575")
+        btnAsc.setBackgroundColor(if (asc) accent else Color.TRANSPARENT)
+        btnAsc.setTextColor(if (asc) Color.WHITE else normal)
+        btnDesc.setBackgroundColor(if (!asc) accent else Color.TRANSPARENT)
+        btnDesc.setTextColor(if (!asc) Color.WHITE else normal)
     }
 
     private fun refresh() {
@@ -334,6 +505,31 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                     R.drawable.ic_settings
                 )
             )
+            // 打开入口：顶部“+ 打开”已去掉，挪回“我的”
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_FILE,
+                    getString(R.string.home_mine_open_file),
+                    getString(R.string.home_mine_open_file_sub),
+                    R.drawable.ic_folder
+                )
+            )
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_URL,
+                    getString(R.string.home_mine_open_url),
+                    getString(R.string.home_mine_open_url_sub),
+                    R.drawable.ic_video
+                )
+            )
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_DOC_TREE,
+                    getString(R.string.home_mine_open_doc_tree),
+                    getString(R.string.home_mine_open_doc_tree_sub),
+                    R.drawable.ic_folder
+                )
+            )
             add(
                 HomeListItem.Mine(
                     MineAction.VAULT,
@@ -361,25 +557,6 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 )
             )
         }
-    }
-
-    /** Top-bar "+ 打开" menu: the open actions moved out of Mine, reusing their handlers. */
-    private fun showOpenMenu() {
-        val items = arrayOf(
-            getString(R.string.home_mine_open_file),
-            getString(R.string.home_mine_open_url),
-            getString(R.string.home_mine_open_doc_tree)
-        )
-        val actions = arrayOf(
-            MineAction.OPEN_FILE,
-            MineAction.OPEN_URL,
-            MineAction.OPEN_DOC_TREE
-        )
-        AlertDialog.Builder(requireContext())
-            .setTitle("打开")
-            .setItems(items) { _, which -> onMineAction(actions[which]) }
-            .setNegativeButton(R.string.dialog_cancel, null)
-            .show()
     }
 
     private fun onMineAction(action: MineAction) {
@@ -476,18 +653,68 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 videos.add(VideoItem(id, name, data, contentUri, folder, duration, dateAdded, size))
             }
         }
-        allVideos = videos.sortedByDescending { it.dateAdded }
+        // 过滤：隐藏文件/文件夹、.nomedia 文件夹（按弹窗“高级”里的开关）
+        val showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false)
+        val recognizeNomedia = prefs.getBoolean(KEY_RECOGNIZE_NOMEDIA, true)
+        var filtered = videos
+        if (!showHidden) {
+            filtered = filtered.filter { !it.name.startsWith(".") && !it.folder.startsWith(".") }
+        }
+        if (recognizeNomedia) {
+            filtered = filtered.filter { video ->
+                val dir = File(video.path).parent
+                dir == null || !File(dir, ".nomedia").exists()
+            }
+        }
+        allVideos = sortVideos(filtered)
         val nowSec = System.currentTimeMillis() / 1000
         val newThreshold = nowSec - NEW_WINDOW_SEC
-        val grouped = videos.groupBy { it.folder }
-        folders = grouped.entries
-            .sortedByDescending { (_, list) -> list.maxOf { it.dateAdded } }
-            .map { (name, list) ->
-                val sorted = list.sortedByDescending { it.dateAdded }
-                val newCount = sorted.count { it.dateAdded >= newThreshold }
-                FolderItem(name, sorted.size, newCount, sorted)
+        val grouped = allVideos.groupBy { it.folder }
+        folders = sortFolders(
+            grouped.entries.map { (name, list) ->
+                val newCount = list.count { it.dateAdded >= newThreshold }
+                FolderItem(name, list.size, newCount, list)
             }
+        )
         refresh()
+    }
+
+    /**
+     * 按弹窗里的排序（标题/日期/长度/大小/路径 + A到Z/Z到A）排视频。
+     * 默认日期降序（最新在前）。
+     */
+    private fun sortVideos(list: List<VideoItem>): List<VideoItem> {
+        val key = prefs.getString(KEY_SORT_KEY, "date") ?: "date"
+        val asc = prefs.getBoolean(KEY_SORT_ASC, false)
+        val comp: Comparator<VideoItem> = when (key) {
+            "title" -> Comparator { a, b -> a.name.compareTo(b.name, ignoreCase = true) }
+            "duration" -> Comparator { a, b -> a.durationMs.compareTo(b.durationMs) }
+            "size" -> Comparator { a, b -> a.sizeBytes.compareTo(b.sizeBytes) }
+            "path" -> Comparator { a, b -> a.path.compareTo(b.path, ignoreCase = true) }
+            else -> Comparator { a, b -> a.dateAdded.compareTo(b.dateAdded) }
+        }
+        val sorted = list.sortedWith(comp)
+        return if (asc) sorted else sorted.reversed()
+    }
+
+    /** 文件夹也按同一排序：标题/路径按文件夹名，长度/大小按合计，日期按最新视频 */
+    private fun sortFolders(list: List<FolderItem>): List<FolderItem> {
+        val key = prefs.getString(KEY_SORT_KEY, "date") ?: "date"
+        val asc = prefs.getBoolean(KEY_SORT_ASC, false)
+        val comp: Comparator<FolderItem> = when (key) {
+            "title", "path" -> Comparator { a, b -> a.name.compareTo(b.name, ignoreCase = true) }
+            "duration" -> Comparator { a, b ->
+                a.videos.sumOf { it.durationMs }.compareTo(b.videos.sumOf { it.durationMs })
+            }
+            "size" -> Comparator { a, b ->
+                a.videos.sumOf { it.sizeBytes }.compareTo(b.videos.sumOf { it.sizeBytes })
+            }
+            else -> Comparator { a, b ->
+                a.videos.maxOf { it.dateAdded }.compareTo(b.videos.maxOf { it.dateAdded })
+            }
+        }
+        val sorted = list.sortedWith(comp)
+        return if (asc) sorted else sorted.reversed()
     }
 
     private fun folderOf(data: String, bucket: String?): String {
@@ -653,7 +880,9 @@ private class HomeAdapter(
             folder = item
             folderName.text = item.name
             folderCount.text = itemView.context.getString(R.string.home_videos_count, item.count)
-            if (item.newCount > 0) {
+            val showBadge = PreferenceManager.getDefaultSharedPreferences(itemView.context)
+                .getBoolean(KEY_SHOW_NEW_BADGE, true)
+            if (showBadge && item.newCount > 0) {
                 folderBadge.isVisible = true
                 folderBadge.text = item.newCount.toString()
             } else {
@@ -667,6 +896,9 @@ private class HomeAdapter(
         private val onVideoClick: (VideoItem) -> Unit,
         private val onVideoLongClick: (VideoItem) -> Unit
     ) : RecyclerView.ViewHolder(view) {
+        private val thumbWrap: View = view.findViewById(R.id.videoThumbWrap)
+        private val videoDurationBadge: TextView = view.findViewById(R.id.videoDurationBadge)
+        private val videoCheck: ImageView = view.findViewById(R.id.videoCheck)
         private val videoName: TextView = view.findViewById(R.id.videoName)
         private val videoMeta: TextView = view.findViewById(R.id.videoMeta)
         private var video: VideoItem? = null
@@ -681,8 +913,21 @@ private class HomeAdapter(
 
         fun bind(item: VideoItem) {
             video = item
-            videoName.text = item.name
-            videoMeta.text = "${formatDuration(item.durationMs)}  ·  ${formatSize(item.sizeBytes)}  ·  ${formatDate(item.dateAdded)}"
+            val prefs = PreferenceManager.getDefaultSharedPreferences(itemView.context)
+            // 文件扩展名：关时名字里不显示 .mp4 这类后缀
+            videoName.text = if (prefs.getBoolean(KEY_FIELD_EXT, false)) {
+                item.name
+            } else {
+                item.name.substringBeforeLast('.', item.name)
+            }
+            videoMeta.text = buildMeta(item, prefs)
+            // 缩略图 + 时长角标（按弹窗“字段 / 高级”里的开关）
+            val showThumb = prefs.getBoolean(KEY_FIELD_THUMB, true)
+            thumbWrap.isVisible = showThumb
+            val showBadge = showThumb && prefs.getBoolean(KEY_SHOW_LENGTH_ON_THUMB, true)
+            videoDurationBadge.isVisible = showBadge
+            if (showBadge) videoDurationBadge.text = formatDuration(item.durationMs)
+            videoCheck.isVisible = false
         }
     }
 
@@ -712,6 +957,16 @@ private class HomeAdapter(
         private const val TYPE_VIDEO = 1
         private const val TYPE_MINE = 2
     }
+}
+
+/** 按弹窗“字段”里的勾选拼视频行的第二行（长度 · 大小 · 日期 · 路径） */
+private fun buildMeta(item: VideoItem, prefs: SharedPreferences): String {
+    val parts = mutableListOf<String>()
+    if (prefs.getBoolean(KEY_FIELD_DURATION, true)) parts.add(formatDuration(item.durationMs))
+    if (prefs.getBoolean(KEY_FIELD_SIZE, true)) parts.add(formatSize(item.sizeBytes))
+    if (prefs.getBoolean(KEY_FIELD_DATE, true)) parts.add(formatDate(item.dateAdded))
+    if (prefs.getBoolean(KEY_FIELD_PATH, false)) parts.add(item.path)
+    return parts.joinToString("  ·  ")
 }
 
 private fun formatDuration(ms: Long): String {
