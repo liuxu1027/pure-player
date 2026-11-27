@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.RecoverableSecurityException
 import android.content.ActivityNotFoundException
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -25,6 +26,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Switch
@@ -91,9 +93,10 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private val selectedIds = mutableSetOf<Long>()
 
     // 系统删除/重命名确认弹窗回来后要继续的操作
-    private enum class ConsentKind { VAULT, DELETE }
+    private enum class ConsentKind { VAULT, DELETE, RENAME }
     private var consentKind = ConsentKind.VAULT
     private var pendingDeleteUris: List<Uri>? = null
+    private var pendingRename: Pair<VideoItem, String>? = null
 
     private var lastPath = ""
 
@@ -109,6 +112,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         onFolderClick = { folder -> openFolder(folder.name) },
         onVideoClick = { video -> onVideoTap(video) },
         onVideoLongClick = { video -> onVideoLongPress(video) },
+        onVideoMoreClick = { video -> showVideoMenu(video) },
         onMineClick = { action -> onMineAction(action) }
     )
 
@@ -175,6 +179,17 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                         if (ctx != null) Toast.makeText(ctx, R.string.delete_done, Toast.LENGTH_SHORT).show()
                     } else {
                         if (ctx != null) Toast.makeText(ctx, R.string.delete_cancelled, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                ConsentKind.RENAME -> {
+                    // 重命名确认：用户点了确认，再试一次改名
+                    val rename = pendingRename
+                    pendingRename = null
+                    if (rename == null || ctx == null) return@registerForActivityResult
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        renameVideo(rename.first, rename.second, allowConsent = false)
+                    } else {
+                        Toast.makeText(ctx, R.string.rename_failed, Toast.LENGTH_SHORT).show()
                     }
                 }
                 ConsentKind.VAULT -> {
@@ -846,6 +861,104 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         playerLauncher.launch(i)
     }
 
+    /** 视频行右边的 ⋮ 菜单：分享、重命名、属性、删除、移入私密库 */
+    private fun showVideoMenu(video: VideoItem) {
+        val ctx = requireContext()
+        val items = arrayOf(
+            getString(R.string.menu_share),
+            getString(R.string.menu_rename),
+            getString(R.string.menu_properties),
+            getString(R.string.menu_delete),
+            getString(R.string.menu_vault)
+        )
+        AlertDialog.Builder(ctx)
+            .setTitle(video.name)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> shareVideos(listOf(video))
+                    1 -> showRenameDialog(video)
+                    2 -> showPropertiesDialog(video)
+                    3 -> deleteVideos(listOf(video))
+                    4 -> moveVideoToVault(video)
+                }
+            }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
+    private fun showRenameDialog(video: VideoItem) {
+        val ctx = requireContext()
+        val ext = video.name.substringAfterLast('.', "")
+        val base = if (ext.isEmpty()) video.name else video.name.substringBeforeLast('.')
+        val input = EditText(ctx).apply {
+            setText(base)
+            setSelection(base.length)
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.rename_title)
+            .setView(input)
+            .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                val newBase = input.text.toString().trim()
+                if (newBase.isEmpty()) {
+                    Toast.makeText(ctx, R.string.rename_empty, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val newName = if (ext.isEmpty()) newBase else "$newBase.$ext"
+                if (newName == video.name) return@setPositiveButton
+                renameVideo(video, newName)
+            }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
+    /**
+     * 改 MediaStore 的 DISPLAY_NAME（同时会改磁盘上的文件名）。
+     * 不是自己的文件时系统要用户确认：先存下来，等确认弹窗回来再试一次。
+     */
+    private fun renameVideo(video: VideoItem, newName: String, allowConsent: Boolean = true) {
+        val ctx = requireContext()
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, newName)
+            }
+            val n = ctx.contentResolver.update(Uri.parse(video.uri), values, null, null)
+            if (n > 0) {
+                if (isAdded) loadMedia()
+                Toast.makeText(ctx, R.string.rename_done, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(ctx, R.string.rename_failed, Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: RecoverableSecurityException) {
+            if (!allowConsent) {
+                Toast.makeText(ctx, R.string.rename_failed, Toast.LENGTH_SHORT).show()
+                return
+            }
+            consentKind = ConsentKind.RENAME
+            pendingRename = video to newName
+            val sender = e.userAction.actionIntent.intentSender
+            consentLauncher.launch(IntentSenderRequest.Builder(sender).build())
+        } catch (e: Exception) {
+            Toast.makeText(ctx, R.string.rename_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showPropertiesDialog(video: VideoItem) {
+        val ctx = requireContext()
+        val text = listOf(
+            "名称：${video.name}",
+            "路径：${video.path}",
+            "文件夹：${video.folder}",
+            "大小：${formatSize(video.sizeBytes)}",
+            "长度：${formatDuration(video.durationMs)}",
+            "日期：${formatDate(video.dateAdded)}"
+        ).joinToString("\n")
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.properties_title)
+            .setMessage(text)
+            .setPositiveButton(R.string.dialog_ok, null)
+            .show()
+    }
+
     private fun shareVideos(videos: List<VideoItem>) {
         if (videos.isEmpty()) return
         val uris = ArrayList(videos.map { Uri.parse(it.uri) })
@@ -1046,6 +1159,7 @@ private class HomeAdapter(
     private val onFolderClick: (FolderItem) -> Unit,
     private val onVideoClick: (VideoItem) -> Unit,
     private val onVideoLongClick: (VideoItem) -> Unit,
+    private val onVideoMoreClick: (VideoItem) -> Unit,
     private val onMineClick: (MineAction) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -1084,7 +1198,7 @@ private class HomeAdapter(
             }
             TYPE_VIDEO -> {
                 val v = inflater.inflate(R.layout.item_media_video, parent, false)
-                VideoViewHolder(v, onVideoClick, onVideoLongClick)
+                VideoViewHolder(v, onVideoClick, onVideoLongClick, onVideoMoreClick)
             }
             else -> {
                 val v = inflater.inflate(R.layout.item_mine, parent, false)
@@ -1136,7 +1250,8 @@ private class HomeAdapter(
     private class VideoViewHolder(
         view: View,
         private val onVideoClick: (VideoItem) -> Unit,
-        private val onVideoLongClick: (VideoItem) -> Unit
+        private val onVideoLongClick: (VideoItem) -> Unit,
+        private val onVideoMoreClick: (VideoItem) -> Unit
     ) : RecyclerView.ViewHolder(view) {
         private val thumbWrap: View = view.findViewById(R.id.videoThumbWrap)
         private val videoDurationBadge: TextView = view.findViewById(R.id.videoDurationBadge)
@@ -1150,6 +1265,9 @@ private class HomeAdapter(
             view.setOnLongClickListener {
                 video?.let(onVideoLongClick)
                 true
+            }
+            view.findViewById<View>(R.id.videoMoreBtn).setOnClickListener {
+                video?.let(onVideoMoreClick)
             }
         }
 
