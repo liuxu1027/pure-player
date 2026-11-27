@@ -28,8 +28,9 @@ internal class MPVView(context: Context, attrs: AttributeSet) : BaseMPVView(cont
         else
             "gpu")
 
-        // hwdec
-        val hwdec = if (sharedPreferences.getBoolean("hardware_decoding", true))
+        // hwdec: Pure decoder setting (frag_decoder.xml, omxdecoder_local);
+        // the PurePlayerSettingsBridge also syncs this key to libmpv at runtime.
+        val hwdec = if (sharedPreferences.getBoolean("omxdecoder_local", true))
             HWDECS
         else
             "no"
