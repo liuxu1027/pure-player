@@ -27,6 +27,7 @@ import android.provider.MediaStore
 import android.util.Rational
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -61,6 +62,8 @@ import org.json.JSONArray
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ln
+import kotlin.math.pow
 
 /**
  * 完整播放器 Activity：
@@ -182,6 +185,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var lastSubGestureY = 0f
     private var subDelayAccum = 0.0
 
+    // 捏合缩放/平移（libmpv video-zoom / video-pan-x / video-pan-y）
+    // videoZoom 按 log2 计：0=贴合画面，3=8 倍；pan 夹在 [-1, 1]
+    private var videoZoom = 0.0
+    private var videoPanX = 0.0
+    private var videoPanY = 0.0
+    private var quickZoomEnabled = true
+    private lateinit var scaleGestureDetector: ScaleGestureDetector
+
     private val speedPresets = listOf(0.5, 1.0, 1.25, 1.5, 2.0)
     private var speedIndex = 1
 
@@ -255,6 +266,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         gestureSwap = prefs.getBoolean(PREF_GESTURE_SWAP, false)
         shuffleEnabled = prefs.getBoolean(PREF_SHUFFLE, false)
         backgroundPlayEnabled = prefs.getBoolean(PREF_BACKGROUND_PLAY, false)
+        quickZoomEnabled = prefs.getBoolean("quick_zoom", true)
         rotationLocked = prefs.getBoolean(PREF_ROTATION_LOCKED, false)
         if (rotationLocked) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -275,6 +287,12 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             object : PurePlayerSettingsBridge.UiSettingCallbacks {
                 override fun onStickyModeChanged(videoMode: String, audioSticky: Boolean) {
                     stickyVideoMode = videoMode
+                }
+
+                override fun onQuickZoomChanged(enabled: Boolean) {
+                    quickZoomEnabled = enabled
+                    // 关掉双指缩放时若正处放大状态，恢复正常
+                    if (!enabled) resetZoomPan()
                 }
             }
         )
@@ -472,6 +490,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         currentVideoPath?.takeIf { it.startsWith("/") }?.let { saveLastPlayed(it) }
         // 换片时按设置重设亮度
         applyBrightnessSetting()
+        // 换片时缩放/平移复位
+        resetZoomPan()
 
         tvTitle.text = title
         // 换片重置 A-B 循环与进度
@@ -1669,6 +1689,25 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupGestures() {
+        // 捏合缩放：video-zoom 按 log2 计（0=贴合，3=8 倍），夹在 [0, 3]
+        scaleGestureDetector = ScaleGestureDetector(this,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    if (isLocked || !quickZoomEnabled) return false
+                    videoZoom = (videoZoom + ln(detector.scaleFactor.toDouble()) / ln(2.0))
+                        .coerceIn(0.0, 3.0)
+                    MPVLib.setPropertyDouble("video-zoom", videoZoom)
+                    if (videoZoom <= 0.0) {
+                        videoPanX = 0.0
+                        videoPanY = 0.0
+                        MPVLib.setPropertyDouble("video-pan-x", 0.0)
+                        MPVLib.setPropertyDouble("video-pan-y", 0.0)
+                    }
+                    showHud("缩放", "${(2.0.pow(videoZoom) * 100).toInt()}%")
+                    return true
+                }
+            })
+
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 if (isLocked) {
@@ -1685,6 +1724,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (isLocked) return true
+                // 已放大时双击先恢复正常（缩放/平移复位），不触发快进/暂停
+                if (videoZoom > 0) {
+                    resetZoomPan()
+                    return true
+                }
                 // 双击快进/快退：左 1/3 后退 10 秒，右 1/3 前进 10 秒；中间走播放/暂停
                 if (prefs.getBoolean("player_dtap_seek", true)) {
                     val w = mpvView.width.toFloat()
@@ -1712,6 +1756,17 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                 distanceY: Float
             ): Boolean {
                 if (isLocked || e1 == null) return false
+
+                // 已放大：单指拖动平移画面（抓取式：手指往哪走画面跟到哪），不走快进/亮度/音量
+                if (videoZoom > 0) {
+                    val w = mpvView.width.toFloat().coerceAtLeast(1f)
+                    val h = mpvView.height.toFloat().coerceAtLeast(1f)
+                    videoPanX = (videoPanX - distanceX / w).coerceIn(-1.0, 1.0)
+                    videoPanY = (videoPanY - distanceY / h).coerceIn(-1.0, 1.0)
+                    MPVLib.setPropertyDouble("video-pan-x", videoPanX)
+                    MPVLib.setPropertyDouble("video-pan-y", videoPanY)
+                    return true
+                }
 
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
@@ -1767,6 +1822,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         })
 
         mpvView.setOnTouchListener { _, event ->
+            // 捏合缩放先喂给 ScaleGestureDetector（它只对双指张合有反应）
+            scaleGestureDetector.onTouchEvent(event)
             // 双指字幕手势优先：接管了就不走单击/双击/单指滑动
             if (handleSubGesture(event)) return@setOnTouchListener true
             gestureDetector.onTouchEvent(event)
@@ -1779,6 +1836,16 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
             true
         }
+    }
+
+    /** 缩放/平移复位（双击恢复、换片、关双指缩放时用） */
+    private fun resetZoomPan() {
+        videoZoom = 0.0
+        videoPanX = 0.0
+        videoPanY = 0.0
+        MPVLib.setPropertyDouble("video-zoom", 0.0)
+        MPVLib.setPropertyDouble("video-pan-x", 0.0)
+        MPVLib.setPropertyDouble("video-pan-y", 0.0)
     }
 
     /**
