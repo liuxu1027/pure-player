@@ -279,6 +279,19 @@
             android:paddingHorizontal="4dp"
             android:visibility="visible" />
 
+        <!-- 2.2b 中央大播放按钮（MX 风格）：暂停且控制层可见时显示，点一下继续播放 -->
+        <ImageButton
+            android:id="@+id/btn_big_play"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:layout_centerInParent="true"
+            android:background="@drawable/bg_big_play"
+            android:contentDescription="播放"
+            android:padding="18dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_play"
+            android:visibility="gone" />
+
         <!-- 2.3 中央手势调节 HUD（亮度 / 音量 / 快进退预览） -->
         <LinearLayout
             android:id="@+id/gesture_hud"

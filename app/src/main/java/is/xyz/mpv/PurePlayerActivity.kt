@@ -82,6 +82,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private lateinit var btnSubtitleTrack: ImageButton
     private lateinit var btnMoreMenu: ImageButton
     private lateinit var btnPlayPause: ImageButton
+    private lateinit var btnBigPlay: ImageButton
     private lateinit var btnPrev: ImageButton
     private lateinit var btnNext: ImageButton
     private lateinit var btnSpeed: TextView
@@ -363,6 +364,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         } else if (!isLocked) {
             playerOverlay.visibility = View.VISIBLE
         }
+        updateBigPlayVisibility()
     }
 
     private fun resolvePlayableUri(uri: Uri): Pair<String, ParcelFileDescriptor?> {
@@ -529,6 +531,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         btnSubtitleTrack = findViewById(R.id.btn_subtitle_track)
         btnMoreMenu = findViewById(R.id.btn_more_menu)
         btnPlayPause = findViewById(R.id.btn_play_pause)
+        btnBigPlay = findViewById(R.id.btn_big_play)
         btnPrev = findViewById(R.id.btn_prev)
         btnNext = findViewById(R.id.btn_next)
         btnSpeed = findViewById(R.id.btn_speed)
@@ -562,6 +565,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         btnBack.setOnClickListener { finish() }
 
         btnPlayPause.setOnClickListener {
+            MPVLib.command(arrayOf("cycle", "pause"))
+        }
+
+        // 中央大播放按钮：只在暂停时出现，点一下继续播放
+        btnBigPlay.setOnClickListener {
             MPVLib.command(arrayOf("cycle", "pause"))
         }
 
@@ -1320,6 +1328,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                 } else {
                     playerOverlay.visibility =
                         if (playerOverlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    updateBigPlayVisibility()
                 }
                 return true
             }
@@ -1409,6 +1418,16 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         isLocked = locked
         playerOverlay.visibility = if (locked) View.GONE else View.VISIBLE
         btnUnlockFloating.visibility = if (locked) View.VISIBLE else View.GONE
+        updateBigPlayVisibility()
+    }
+
+    /**
+     * 中央大播放按钮：只在「暂停」且「控制层可见」时显示。
+     * 控制层隐藏/锁定/画中画时一律隐藏。
+     */
+    private fun updateBigPlayVisibility() {
+        btnBigPlay.visibility =
+            if (isPaused && playerOverlay.visibility == View.VISIBLE) View.VISIBLE else View.GONE
     }
 
     private fun showHud(title: String, value: String) {
@@ -1460,6 +1479,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                         if (value) R.drawable.ic_play
                         else R.drawable.ic_pause
                     )
+                    updateBigPlayVisibility()
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
                         setPictureInPictureParams(buildPipParams())
                     }
