@@ -3,6 +3,8 @@ package `is`.xyz.mpv
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -173,6 +175,55 @@ class PureSettingsActivity : AppCompatActivity(),
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             val xmlRes = requireArguments().getInt(ARG_XML_RES)
             setPreferencesFromResource(xmlRes, rootKey)
+            // 列表页：“已排除的文件夹”入口（在文件夹长按菜单里排除的，点这里查看/恢复）
+            if (xmlRes == R.xml.frag_list) {
+                findPreference<Preference>("excluded_folders")?.apply {
+                    updateExcludedSummary()
+                    setOnPreferenceClickListener {
+                        showExcludedFoldersDialog()
+                        true
+                    }
+                }
+            }
+        }
+
+        /** “已排除的文件夹”一行的小字：显示已排除的数量 */
+        private fun updateExcludedSummary() {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            val count = prefs.getStringSet(KEY_EXCLUDED_FOLDERS, emptySet())?.size ?: 0
+            findPreference<Preference>("excluded_folders")?.summary =
+                if (count == 0) getString(R.string.excluded_folders_none)
+                else getString(R.string.excluded_folders_count, count)
+        }
+
+        /**
+         * 已排除的文件夹：多选框列出被排除的目录；取消勾选后点确定，
+         * 即恢复显示该文件夹（首页下次刷新时重新出现）。
+         */
+        private fun showExcludedFoldersDialog() {
+            val ctx = requireContext()
+            val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+            val excluded = prefs.getStringSet(KEY_EXCLUDED_FOLDERS, emptySet())
+                ?.toList()?.sorted() ?: emptyList()
+            if (excluded.isEmpty()) {
+                Toast.makeText(ctx, R.string.excluded_folders_empty, Toast.LENGTH_SHORT).show()
+                return
+            }
+            val checked = BooleanArray(excluded.size) { true }
+            AlertDialog.Builder(ctx)
+                .setTitle(R.string.excluded_folders_dialog_title)
+                .setMessage(R.string.excluded_folders_dialog_hint)
+                .setMultiChoiceItems(excluded.toTypedArray(), checked) { _, which, isChecked ->
+                    checked[which] = isChecked
+                }
+                .setPositiveButton(R.string.dialog_ok) { _, _ ->
+                    val kept = excluded.filterIndexed { i, _ -> checked[i] }.toSet()
+                    prefs.edit().putStringSet(KEY_EXCLUDED_FOLDERS, kept).apply()
+                    updateExcludedSummary()
+                    Toast.makeText(ctx, R.string.excluded_folders_updated, Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(R.string.vs_cancel, null)
+                .show()
         }
 
         override fun onResume() {
