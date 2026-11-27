@@ -11,7 +11,7 @@
         android:id="@+id/videoThumb"
         android:layout_width="48dp"
         android:layout_height="36dp"
-        android:background="?attr/colorSurfaceVariant"
+        android:background="#1F1F1F"
         android:scaleType="centerInside"
         android:src="@drawable/ic_video"
         android:tint="?attr/colorControlNormal" />
