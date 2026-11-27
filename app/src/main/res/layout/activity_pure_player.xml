@@ -106,17 +106,17 @@
                 app:tint="#FFFFFF" />
         </LinearLayout>
 
-        <!-- 2.2 快捷操作栏（对应原 screen.xml 的横向 RecyclerView 快捷栏） -->
+        <!-- 2.2 快捷操作栏：顶部功能菜单一排（手势对调、随机、循环、静音、定时关闭、A-B 重复、速度、截图、后台播放、屏幕旋转） -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_quick_actions"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="56dp"
             android:layout_below="@id/top_toolbar"
+            android:background="#80000000"
             android:clipToPadding="false"
             android:orientation="horizontal"
-            android:paddingHorizontal="12dp"
-            android:visibility="gone"
-            tools:visibility="visible" />
+            android:paddingHorizontal="4dp"
+            android:visibility="visible" />
 
         <!-- 2.3 中央手势调节 HUD（亮度 / 音量 / 快进退预览） -->
         <LinearLayout
