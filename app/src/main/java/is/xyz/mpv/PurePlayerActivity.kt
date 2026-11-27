@@ -190,6 +190,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var videoZoom = 0.0
     private var videoPanX = 0.0
     private var videoPanY = 0.0
+    // 画面比例循环下标（0=适应屏幕，见 cycleAspectRatio）；换片时复位
+    private var aspectRatioIndex = 0
     private var quickZoomEnabled = true
     private lateinit var scaleGestureDetector: ScaleGestureDetector
 
@@ -492,6 +494,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         applyBrightnessSetting()
         // 换片时缩放/平移复位
         resetZoomPan()
+        // 换片时画面比例复位到“适应屏幕”（下标与 mpv 属性一起复位，保持一致）
+        aspectRatioIndex = 0
+        MPVLib.setPropertyString("video-aspect-override", "-1")
+        MPVLib.setPropertyDouble("panscan", 0.0)
 
         tvTitle.text = title
         // 换片重置 A-B 循环与进度
@@ -815,7 +821,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
 
         btnAspectRatio.setOnClickListener {
-            showAspectRatioDialog()
+            cycleAspectRatio()
         }
 
         btnMoreMenu.setOnClickListener {
@@ -1667,7 +1673,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         Toast.makeText(this, "字幕样式已恢复默认", Toast.LENGTH_SHORT).show()
     }
 
-    private fun showAspectRatioDialog() {
+    /**
+     * 画面比例：点一下切到下一个，不弹窗，循环切换。
+     * 顺序：适应屏幕 → 铺满裁剪 → 拉伸全屏 16:9 → 4:3 → 21:9 → 回到适应屏幕。
+     */
+    private fun cycleAspectRatio() {
         val options = arrayOf(
             "适应屏幕 (默认)" to Pair("-1", 0.0),
             "铺满裁剪 (Crop)" to Pair("-1", 1.0),
@@ -1675,17 +1685,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             "4:3" to Pair("4:3", 0.0),
             "21:9" to Pair("21:9", 0.0)
         )
-        val labels = options.map { it.first }.toTypedArray()
-
-        AlertDialog.Builder(this)
-            .setTitle("画面比例")
-            .setItems(labels) { dialog, which ->
-                val (aspect, panscan) = options[which].second
-                MPVLib.setPropertyString("video-aspect-override", aspect)
-                MPVLib.setPropertyDouble("panscan", panscan)
-                dialog.dismiss()
-            }
-            .show()
+        aspectRatioIndex = (aspectRatioIndex + 1) % options.size
+        val (label, pair) = options[aspectRatioIndex]
+        MPVLib.setPropertyString("video-aspect-override", pair.first)
+        MPVLib.setPropertyDouble("panscan", pair.second)
+        Toast.makeText(this, "画面比例：$label", Toast.LENGTH_SHORT).show()
     }
 
     @SuppressLint("ClickableViewAccessibility")
