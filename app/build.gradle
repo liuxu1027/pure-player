@@ -49,6 +49,13 @@ android {
         }
     }
 
+    lint {
+        // Deleted strings (old mpv settings) still have translations in
+        // locale files; those orphaned translations are harmless.
+        // Ignore them so lintVital does not fail the build.
+        disable 'ExtraTranslation'
+    }
+
     splits {
         abi {
             // workaround: AGP fails to build split APKs and a bundle at the same time
