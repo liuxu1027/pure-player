@@ -59,6 +59,29 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        app:key="category_player_control"
+        app:title="控制">
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="player_dtap_playpause"
+            app:summary="双击屏幕中间暂停 / 继续"
+            app:title="双击播放/暂停" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="player_dtap_seek"
+            app:summary="双击左三分之一后退 10 秒、右三分之一前进 10 秒"
+            app:title="双击快进/快退" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="player_sub_gestures"
+            app:summary="双指上下滑动调整字幕同步"
+            app:title="字幕手势" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_player_playback"
         app:title="播放">
 

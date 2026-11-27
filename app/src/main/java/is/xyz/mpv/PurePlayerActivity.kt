@@ -177,6 +177,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var startVolume = 0
     private var pendingSeekSec = 0.0
 
+    // 双指字幕手势：两指上下滑动调字幕同步（sub-delay）
+    private var subGestureActive = false
+    private var lastSubGestureY = 0f
+    private var subDelayAccum = 0.0
+
     private val speedPresets = listOf(0.5, 1.0, 1.25, 1.5, 2.0)
     private var speedIndex = 1
 
@@ -1679,7 +1684,22 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (!isLocked) {
+                if (isLocked) return true
+                // 双击快进/快退：左 1/3 后退 10 秒，右 1/3 前进 10 秒；中间走播放/暂停
+                if (prefs.getBoolean("player_dtap_seek", true)) {
+                    val w = mpvView.width.toFloat()
+                    when {
+                        e.x < w / 3f -> {
+                            MPVLib.command(arrayOf("seek", "-10", "relative"))
+                            return true
+                        }
+                        e.x > w * 2f / 3f -> {
+                            MPVLib.command(arrayOf("seek", "10", "relative"))
+                            return true
+                        }
+                    }
+                }
+                if (prefs.getBoolean("player_dtap_playpause", true)) {
                     MPVLib.command(arrayOf("cycle", "pause"))
                 }
                 return true
@@ -1747,6 +1767,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         })
 
         mpvView.setOnTouchListener { _, event ->
+            // 双指字幕手势优先：接管了就不走单击/双击/单指滑动
+            if (handleSubGesture(event)) return@setOnTouchListener true
             gestureDetector.onTouchEvent(event)
             if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
                 if (gestureMode == GestureMode.SEEK) {
@@ -1757,6 +1779,54 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
             true
         }
+    }
+
+    /**
+     * 双指上下滑动调字幕同步：上滑字幕提前（sub-delay 减小），下滑字幕延后。
+     * 100px ≈ 0.5 秒，攒够 0.1 秒写一次 mpv，HUD 显示当前值。
+     * 第二指落下时若单指正在拖动定位，先把那次定位提交了再切双指。
+     */
+    private fun handleSubGesture(event: MotionEvent): Boolean {
+        if (!prefs.getBoolean("player_sub_gestures", true)) return false
+        if (isLocked) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount == 2) {
+                    if (gestureMode == GestureMode.SEEK) {
+                        MPVLib.command(arrayOf("seek", pendingSeekSec.toString(), "absolute"))
+                        gestureMode = GestureMode.NONE
+                    }
+                    subGestureActive = true
+                    lastSubGestureY = (event.getY(0) + event.getY(1)) / 2f
+                    subDelayAccum = 0.0
+                    return true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (subGestureActive && event.pointerCount == 2) {
+                    val y = (event.getY(0) + event.getY(1)) / 2f
+                    val dy = y - lastSubGestureY
+                    lastSubGestureY = y
+                    subDelayAccum += -dy / 100.0 * 0.5
+                    if (abs(subDelayAccum) >= 0.1) {
+                        val cur = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+                        val next = (cur + subDelayAccum).coerceIn(-10.0, 10.0)
+                        MPVLib.setPropertyDouble("sub-delay", next)
+                        subDelayAccum = 0.0
+                        showHud("字幕同步", String.format(Locale.US, "%+.1f 秒", next))
+                    }
+                    return true
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (subGestureActive) {
+                    subGestureActive = false
+                    gestureHud.visibility = View.GONE
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun setLockState(locked: Boolean) {
