@@ -86,6 +86,15 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
     private var pendingVaultMove: VaultStore.PendingMove? = null
 
+    // ---- 多选模式 ----
+    private var selectionMode = false
+    private val selectedIds = mutableSetOf<Long>()
+
+    // 系统删除/重命名确认弹窗回来后要继续的操作
+    private enum class ConsentKind { VAULT, DELETE }
+    private var consentKind = ConsentKind.VAULT
+    private var pendingDeleteUris: List<Uri>? = null
+
     private var lastPath = ""
 
     private var allVideos: List<VideoItem> = emptyList()
@@ -98,8 +107,8 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
     private val adapter = HomeAdapter(
         onFolderClick = { folder -> openFolder(folder.name) },
-        onVideoClick = { video -> playFile(video.uri) },
-        onVideoLongClick = { video -> moveVideoToVault(video) },
+        onVideoClick = { video -> onVideoTap(video) },
+        onVideoLongClick = { video -> onVideoLongPress(video) },
         onMineClick = { action -> onMineAction(action) }
     )
 
@@ -155,29 +164,44 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         consentLauncher = registerForActivityResult(
             ActivityResultContracts.StartIntentSenderForResult()
         ) { result ->
-            val pending = pendingVaultMove
-            pendingVaultMove = null
             val ctx = context
-            if (pending == null || ctx == null) return@registerForActivityResult
-            if (result.resultCode == Activity.RESULT_OK) {
-                Thread {
-                    try {
-                        VaultStore.deleteOriginal(ctx, pending)
-                        VaultStore.completeMove(ctx, pending)
-                        activity?.runOnUiThread {
-                            if (isAdded) loadMedia()
-                            Toast.makeText(ctx, R.string.vault_move_done, Toast.LENGTH_SHORT).show()
-                        }
-                    } catch (e: Exception) {
-                        VaultStore.cancelMove(pending)
-                        activity?.runOnUiThread {
-                            Toast.makeText(ctx, R.string.vault_move_failed, Toast.LENGTH_SHORT).show()
-                        }
+            when (consentKind) {
+                ConsentKind.DELETE -> {
+                    // 系统删除确认：用户点了确认，系统已删掉这些文件
+                    pendingDeleteUris = null
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        if (selectionMode) exitSelectionMode()
+                        if (isAdded) loadMedia()
+                        if (ctx != null) Toast.makeText(ctx, R.string.delete_done, Toast.LENGTH_SHORT).show()
+                    } else {
+                        if (ctx != null) Toast.makeText(ctx, R.string.delete_cancelled, Toast.LENGTH_SHORT).show()
                     }
-                }.start()
-            } else {
-                VaultStore.cancelMove(pending)
-                Toast.makeText(ctx, R.string.vault_move_cancelled, Toast.LENGTH_SHORT).show()
+                }
+                ConsentKind.VAULT -> {
+                    val pending = pendingVaultMove
+                    pendingVaultMove = null
+                    if (pending == null || ctx == null) return@registerForActivityResult
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        Thread {
+                            try {
+                                VaultStore.deleteOriginal(ctx, pending)
+                                VaultStore.completeMove(ctx, pending)
+                                activity?.runOnUiThread {
+                                    if (isAdded) loadMedia()
+                                    Toast.makeText(ctx, R.string.vault_move_done, Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                VaultStore.cancelMove(pending)
+                                activity?.runOnUiThread {
+                                    Toast.makeText(ctx, R.string.vault_move_failed, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }.start()
+                    } else {
+                        VaultStore.cancelMove(pending)
+                        Toast.makeText(ctx, R.string.vault_move_cancelled, Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
@@ -206,17 +230,27 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         binding.navAll.setOnClickListener { switchTab(Tab.ALL) }
         binding.navMine.setOnClickListener { switchTab(Tab.MINE) }
 
+        // selection mode bar + actions
+        binding.btnSelClose.setOnClickListener { exitSelectionMode() }
+        binding.btnSelAll.setOnClickListener { selectAllVisible() }
+        binding.btnSelPlay.setOnClickListener { playSelected() }
+        binding.btnSelShare.setOnClickListener { shareVideos(selectedVideos()) }
+        binding.btnSelDelete.setOnClickListener { deleteVideos(selectedVideos()) }
+        binding.btnSelVault.setOnClickListener { moveVideosToVault(selectedVideos()) }
+
         // list: initial tab from view-mode pref, initial layout from default-view pref
         currentTab = if (prefs.getString(KEY_VIEW_MODE, VIEW_ALL_FOLDERS) == VIEW_FILES) Tab.ALL else Tab.LOCAL
         isGrid = prefs.getString(KEY_DEFAULT_VIEW, "list") == "grid"
         applyLayoutMode()
         binding.mediaList.adapter = adapter
 
-        // back: folder detail -> folder list, otherwise let the activity handle it
+        // back: selection mode -> exit it; folder detail -> folder list, otherwise let the activity handle it
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (currentFolder != null) {
+                    if (selectionMode) {
+                        exitSelectionMode()
+                    } else if (currentFolder != null) {
                         goBackToFolders()
                     } else {
                         isEnabled = false
@@ -739,6 +773,199 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         playerLauncher.launch(i)
     }
 
+    // ========================
+    // 多选模式
+    // ========================
+
+    private fun onVideoTap(video: VideoItem) {
+        if (selectionMode) toggleSelection(video) else playFile(video.uri)
+    }
+
+    private fun onVideoLongPress(video: VideoItem) {
+        if (selectionMode) toggleSelection(video) else enterSelectionMode(video)
+    }
+
+    private fun enterSelectionMode(video: VideoItem) {
+        selectionMode = true
+        selectedIds.add(video.id)
+        updateSelectionUI()
+    }
+
+    private fun toggleSelection(video: VideoItem) {
+        if (selectedIds.contains(video.id)) selectedIds.remove(video.id) else selectedIds.add(video.id)
+        if (selectedIds.isEmpty()) exitSelectionMode() else updateSelectionUI()
+    }
+
+    private fun exitSelectionMode() {
+        selectionMode = false
+        selectedIds.clear()
+        updateSelectionUI()
+    }
+
+    private fun updateSelectionUI() {
+        val count = currentVideoItems().size
+        binding.selectionBar.isVisible = selectionMode
+        binding.topBar.isVisible = !selectionMode
+        binding.selectionActions.isVisible = selectionMode
+        binding.bottomNav.isVisible = !selectionMode
+        binding.tvSelCount.text = getString(R.string.sel_count, selectedIds.size, count)
+        adapter.setSelection(selectionMode, selectedIds)
+    }
+
+    /** 当前列表里显示的视频（按页签/文件夹/搜索过滤后的） */
+    private fun currentVideoItems(): List<VideoItem> {
+        return buildItems().mapNotNull { (it as? HomeListItem.Video)?.item }
+    }
+
+    /** 选中的视频（按当前列表顺序） */
+    private fun selectedVideos(): List<VideoItem> {
+        return currentVideoItems().filter { selectedIds.contains(it.id) }
+    }
+
+    private fun selectAllVisible() {
+        val items = currentVideoItems()
+        if (items.isEmpty()) return
+        selectedIds.clear()
+        selectedIds.addAll(items.map { it.id })
+        updateSelectionUI()
+    }
+
+    private fun playSelected() {
+        val videos = selectedVideos()
+        if (videos.isEmpty()) return
+        exitSelectionMode()
+        playFiles(videos, 0)
+    }
+
+    /** 按给定顺序播一列视频（多选用）：走播放器的自定义播放列表 */
+    private fun playFiles(videos: List<VideoItem>, startIndex: Int) {
+        if (videos.isEmpty()) return
+        val i = Intent(requireContext(), PurePlayerActivity::class.java)
+        i.putStringArrayListExtra("video_uris", ArrayList(videos.map { it.uri }))
+        i.putExtra("video_index", startIndex.coerceIn(videos.indices))
+        playerLauncher.launch(i)
+    }
+
+    private fun shareVideos(videos: List<VideoItem>) {
+        if (videos.isEmpty()) return
+        val uris = ArrayList(videos.map { Uri.parse(it.uri) })
+        val i = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "video/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(i, getString(R.string.share_title)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(requireContext(), R.string.share_title, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 删视频：先弹确认；Android 11+ 用一次系统弹窗确认全部删除 */
+    private fun deleteVideos(videos: List<VideoItem>) {
+        if (videos.isEmpty()) return
+        val ctx = requireContext()
+        val msg = if (videos.size == 1) {
+            getString(R.string.delete_confirm, videos[0].name)
+        } else {
+            getString(R.string.delete_confirm_multi, videos.size)
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.delete_title)
+            .setMessage(msg)
+            .setPositiveButton(R.string.delete_ok) { _, _ -> performDelete(videos) }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
+    private fun performDelete(videos: List<VideoItem>) {
+        val ctx = requireContext()
+        val uris = videos.map { Uri.parse(it.uri) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            consentKind = ConsentKind.DELETE
+            pendingDeleteUris = uris
+            try {
+                val pi = MediaStore.createDeleteRequest(ctx.contentResolver, uris)
+                consentLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+            } catch (e: Exception) {
+                pendingDeleteUris = null
+                deleteVideosDirect(videos)
+            }
+        } else {
+            deleteVideosDirect(videos)
+        }
+    }
+
+    /** Android 10 及以下：直接删，失败的只记数（系统确认流程只在新版本走） */
+    private fun deleteVideosDirect(videos: List<VideoItem>) {
+        val ctx = requireContext()
+        Thread {
+            var ok = 0
+            for (video in videos) {
+                try {
+                    val n = ctx.contentResolver.delete(Uri.parse(video.uri), null, null)
+                    if (n > 0) ok++
+                } catch (e: Exception) {
+                }
+            }
+            val deleted = ok
+            activity?.runOnUiThread {
+                if (isAdded) {
+                    if (selectionMode) exitSelectionMode()
+                    loadMedia()
+                }
+                Toast.makeText(
+                    ctx,
+                    if (deleted == videos.size) getString(R.string.delete_done)
+                    else getString(R.string.delete_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.start()
+    }
+
+    /** 批量移入私密库：逐个处理，需要系统确认的单条先跳过，不阻塞其余 */
+    private fun moveVideosToVault(videos: List<VideoItem>) {
+        if (videos.isEmpty()) return
+        val ctx = requireContext()
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.vault_move_title)
+            .setMessage(getString(R.string.vault_move_confirm_multi, videos.size))
+            .setPositiveButton(R.string.vault_move_ok) { _, _ ->
+                exitSelectionMode()
+                Thread {
+                    var ok = 0
+                    var failed = 0
+                    for (video in videos) {
+                        val pending = VaultStore.copyToVault(ctx, video)
+                        if (pending == null) {
+                            failed++
+                            continue
+                        }
+                        try {
+                            VaultStore.deleteOriginal(ctx, pending)
+                            VaultStore.completeMove(ctx, pending)
+                            ok++
+                        } catch (e: Exception) {
+                            VaultStore.cancelMove(pending)
+                            failed++
+                        }
+                    }
+                    activity?.runOnUiThread {
+                        if (isAdded) loadMedia()
+                        Toast.makeText(
+                            ctx,
+                            if (failed == 0) getString(R.string.vault_move_done_multi, ok)
+                            else getString(R.string.vault_move_partial, ok, failed),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }.start()
+            }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
     private fun moveVideoToVault(video: VideoItem) {
         val ctx = requireContext()
         AlertDialog.Builder(ctx)
@@ -824,8 +1051,19 @@ private class HomeAdapter(
 
     private var items: List<HomeListItem> = emptyList()
 
+    // 多选模式：选中行的勾选标记与高亮由 VideoViewHolder.bind 画
+    private var selectionMode = false
+    private val selectedIds = mutableSetOf<Long>()
+
     fun submit(newItems: List<HomeListItem>) {
         items = newItems
+        notifyDataSetChanged()
+    }
+
+    fun setSelection(enabled: Boolean, selected: Set<Long>) {
+        selectionMode = enabled
+        selectedIds.clear()
+        selectedIds.addAll(selected)
         notifyDataSetChanged()
     }
 
@@ -858,7 +1096,11 @@ private class HomeAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
             is HomeListItem.Folder -> (holder as FolderViewHolder).bind(item.item)
-            is HomeListItem.Video -> (holder as VideoViewHolder).bind(item.item)
+            is HomeListItem.Video -> (holder as VideoViewHolder).bind(
+                item.item,
+                selectionMode,
+                selectedIds.contains(item.item.id)
+            )
             is HomeListItem.Mine -> (holder as MineViewHolder).bind(item)
         }
     }
@@ -911,7 +1153,7 @@ private class HomeAdapter(
             }
         }
 
-        fun bind(item: VideoItem) {
+        fun bind(item: VideoItem, inSelectionMode: Boolean, isSelected: Boolean) {
             video = item
             val prefs = PreferenceManager.getDefaultSharedPreferences(itemView.context)
             // 文件扩展名：关时名字里不显示 .mp4 这类后缀
@@ -927,7 +1169,11 @@ private class HomeAdapter(
             val showBadge = showThumb && prefs.getBoolean(KEY_SHOW_LENGTH_ON_THUMB, true)
             videoDurationBadge.isVisible = showBadge
             if (showBadge) videoDurationBadge.text = formatDuration(item.durationMs)
-            videoCheck.isVisible = false
+            // 多选态：勾选标记 + 行高亮
+            videoCheck.isVisible = inSelectionMode && isSelected
+            itemView.setBackgroundColor(
+                if (isSelected) Color.parseColor("#1A3c8cf0") else Color.TRANSPARENT
+            )
         }
     }
 

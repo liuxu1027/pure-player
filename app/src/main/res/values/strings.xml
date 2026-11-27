@@ -200,4 +200,24 @@
     <string name="vs_adv_nomedia">识别 .nomedia</string>
     <string name="vs_cancel">取消</string>
     <string name="vs_done">完成</string>
+
+    <!-- Multi-select -->
+    <string name="sel_count">%1$d / %2$d 已选择</string>
+    <string name="sel_close">退出多选</string>
+    <string name="sel_select_all">全选</string>
+    <string name="sel_play">播放</string>
+    <string name="sel_share">分享</string>
+    <string name="sel_delete">删除</string>
+    <string name="sel_vault">私密库</string>
+    <string name="share_title">分享视频</string>
+    <string name="delete_title">删除视频</string>
+    <string name="delete_confirm">确定要删除「%1$s」吗？删除后无法恢复。</string>
+    <string name="delete_confirm_multi">确定要删除选中的 %1$d 个视频吗？删除后无法恢复。</string>
+    <string name="delete_ok">删除</string>
+    <string name="delete_done">已删除</string>
+    <string name="delete_cancelled">已取消删除</string>
+    <string name="delete_failed">删除失败</string>
+    <string name="vault_move_confirm_multi">把选中的 %1$d 个视频移入私密库吗？移入后它们将从相册和文件管理器中隐藏。</string>
+    <string name="vault_move_done_multi">已移入 %1$d 个视频</string>
+    <string name="vault_move_partial">已移入 %1$d 个，失败 %2$d 个</string>
 </resources>
