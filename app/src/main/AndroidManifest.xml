@@ -133,7 +133,7 @@
                 <data android:pathPattern=".*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.mov" />
-                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.mov" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\.mov" />
 
                 <data android:pathPattern=".*\\.m4v" />
