@@ -72,6 +72,11 @@ private const val KEY_FLOATING_RESUME = "home_floating_resume"
 private const val KEY_SHOW_HISTORY = "home_show_history"
 private const val KEY_SHOW_NEW_BADGE = "home_show_new_badge"
 
+// 用户在文件夹长按菜单里“排除”的文件夹目录（SharedPreferences StringSet，
+// 设置-列表里的“已排除的文件夹”可查看/恢复；PureSettingsActivity 也读它，
+// 所以这里不加 private）
+const val KEY_EXCLUDED_FOLDERS = "excluded_folders"
+
 private const val VIEW_ALL_FOLDERS = "all_folders"
 private const val VIEW_FILES = "files"
 private const val VIEW_FOLDERS = "folders"
@@ -117,6 +122,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
     private val adapter = HomeAdapter(
         onFolderClick = { folder -> openFolder(folder.name) },
+        onFolderLongClick = { folder -> showFolderMenu(folder) },
         onVideoClick = { video -> onVideoTap(video) },
         onVideoLongClick = { video -> onVideoLongPress(video) },
         onVideoMoreClick = { video -> showVideoMenu(video) },
@@ -768,6 +774,15 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 dir == null || !File(dir, ".nomedia").exists()
             }
         }
+        // 排除：用户在文件夹菜单里排除过的文件夹不显示（按目录过滤，
+        // 同名文件夹分布在多个目录时只排除被排除的那个目录）
+        val excludedDirs = prefs.getStringSet(KEY_EXCLUDED_FOLDERS, emptySet())?.toSet() ?: emptySet()
+        if (excludedDirs.isNotEmpty()) {
+            filtered = filtered.filter { video ->
+                val dir = File(video.path).parent
+                dir == null || dir !in excludedDirs
+            }
+        }
         allVideos = sortVideos(filtered)
         val nowSec = System.currentTimeMillis() / 1000
         val newThreshold = nowSec - newWindowSec()
@@ -935,6 +950,80 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                     4 -> moveVideoToVault(video)
                 }
             }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
+    /**
+     * 长按文件夹的菜单：和单个文件基本一样（属性/删除/移入私密库），
+     * 多一个“排除”。
+     * 不适用所以没放的：分享（文件夹没法分享）、重命名（没有 MANAGE_EXTERNAL_STORAGE，
+     * 共享存储下的目录改不了名，File.renameTo 会失败）。
+     */
+    private fun showFolderMenu(folder: FolderItem) {
+        val ctx = requireContext()
+        val items = arrayOf(
+            getString(R.string.menu_properties),
+            getString(R.string.menu_delete),
+            getString(R.string.menu_vault),
+            getString(R.string.menu_exclude)
+        )
+        AlertDialog.Builder(ctx)
+            .setTitle(folder.name)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showFolderPropertiesDialog(folder)
+                    1 -> deleteFolder(folder)
+                    2 -> moveVideosToVault(folder.videos)
+                    3 -> excludeFolder(folder)
+                }
+            }
+            .setNegativeButton(R.string.vs_cancel, null)
+            .show()
+    }
+
+    /** 文件夹所在的磁盘目录（同名文件夹可能分布在多个目录，全算上） */
+    private fun folderDirs(folder: FolderItem): Set<String> =
+        folder.videos.mapNotNull { File(it.path).parent }.toSet()
+
+    /** 排除：把文件夹目录记进排除列表，首页刷新后它就消失；设置-列表里可恢复 */
+    private fun excludeFolder(folder: FolderItem) {
+        val dirs = folderDirs(folder)
+        if (dirs.isEmpty()) return
+        val cur = prefs.getStringSet(KEY_EXCLUDED_FOLDERS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        cur.addAll(dirs)
+        prefs.edit().putStringSet(KEY_EXCLUDED_FOLDERS, cur).apply()
+        loadMedia()
+        Toast.makeText(requireContext(), getString(R.string.folder_excluded, folder.name), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showFolderPropertiesDialog(folder: FolderItem) {
+        val ctx = requireContext()
+        val totalSize = folder.videos.sumOf { it.sizeBytes }
+        val totalDuration = folder.videos.sumOf { it.durationMs }
+        val dir = folderDirs(folder).joinToString("\n")
+        val text = listOf(
+            "名称：${folder.name}",
+            "路径：$dir",
+            "视频：${folder.count} 个",
+            "总大小：${formatSize(totalSize)}",
+            "总时长：${formatDuration(totalDuration)}"
+        ).joinToString("\n")
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.properties_title)
+            .setMessage(text)
+            .setPositiveButton(R.string.dialog_ok, null)
+            .show()
+    }
+
+    /** 删文件夹 = 删里面全部视频（走和删视频一样的确认 + 系统确认流程）；空目录留在磁盘上 */
+    private fun deleteFolder(folder: FolderItem) {
+        if (folder.videos.isEmpty()) return
+        val ctx = requireContext()
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.delete_title)
+            .setMessage(getString(R.string.folder_delete_confirm, folder.name, folder.videos.size))
+            .setPositiveButton(R.string.delete_ok) { _, _ -> performDelete(folder.videos) }
             .setNegativeButton(R.string.vs_cancel, null)
             .show()
     }
@@ -1210,6 +1299,7 @@ private sealed class HomeListItem {
 
 private class HomeAdapter(
     private val onFolderClick: (FolderItem) -> Unit,
+    private val onFolderLongClick: (FolderItem) -> Unit,
     private val onVideoClick: (VideoItem) -> Unit,
     private val onVideoLongClick: (VideoItem) -> Unit,
     private val onVideoMoreClick: (VideoItem) -> Unit,
@@ -1248,7 +1338,7 @@ private class HomeAdapter(
         return when (viewType) {
             TYPE_FOLDER -> {
                 val v = inflater.inflate(R.layout.item_media_folder, parent, false)
-                FolderViewHolder(v, onFolderClick)
+                FolderViewHolder(v, onFolderClick, onFolderLongClick)
             }
             TYPE_VIDEO -> {
                 val v = inflater.inflate(R.layout.item_media_video, parent, false)
@@ -1294,7 +1384,8 @@ private class HomeAdapter(
 
     private class FolderViewHolder(
         view: View,
-        private val onFolderClick: (FolderItem) -> Unit
+        private val onFolderClick: (FolderItem) -> Unit,
+        private val onFolderLongClick: (FolderItem) -> Unit
     ) : RecyclerView.ViewHolder(view) {
         private val folderName: TextView = view.findViewById(R.id.folderName)
         private val folderCount: TextView = view.findViewById(R.id.folderCount)
@@ -1303,6 +1394,7 @@ private class HomeAdapter(
 
         init {
             view.setOnClickListener { folder?.let(onFolderClick) }
+            view.setOnLongClickListener { folder?.let(onFolderLongClick); true }
         }
 
         fun bind(item: FolderItem) {
