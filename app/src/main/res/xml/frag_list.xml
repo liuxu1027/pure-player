@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ListPreference
+        app:defaultValue="list"
+        app:entries="@array/entries_home_default_view"
+        app:entryValues="@array/values_home_default_view"
+        app:key="home_default_view"
+        app:title="默认视图"
+        app:useSimpleSummaryProvider="true" />
+
+    <CheckBoxPreference
+        app:defaultValue="true"
+        app:key="home_show_new_badge"
+        app:summary="在文件夹上显示最近新增视频的数量角标"
+        app:title="显示“新视频”角标" />
+
+    <ListPreference
+        app:defaultValue="date_desc"
+        app:entries="@array/entries_home_sort_order"
+        app:entryValues="@array/values_home_sort_order"
+        app:key="home_sort_order"
+        app:title="排序方式"
+        app:useSimpleSummaryProvider="true" />
+
+</PreferenceScreen>

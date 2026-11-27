@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ListPreference
+        app:defaultValue="system"
+        app:entries="@array/entries_app_theme"
+        app:entryValues="@array/values_app_theme"
+        app:key="app_theme"
+        app:title="主题"
+        app:useSimpleSummaryProvider="true" />
+
+    <CheckBoxPreference
+        app:defaultValue="false"
+        app:key="material_you_theming"
+        app:summary="使用系统动态取色（Android 12+）"
+        app:title="Material You 动态取色" />
+
+</PreferenceScreen>

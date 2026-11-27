@@ -17,13 +17,14 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
+        android:name=".PureApplication"
         android:allowBackup="true"
         android:resizeableActivity="true"
         android:requestLegacyExternalStorage="true"
         android:preserveLegacyExternalStorage="true"
         android:supportsRtl="true"
-        android:icon="@mipmap/mpv_launcher_icon"
-        android:roundIcon="@mipmap/mpv_launcher_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:banner="@mipmap/ic_banner"
         android:label="@string/mpv_activity"
         android:appCategory="video"
@@ -41,7 +42,7 @@
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
-            android:theme="@style/Theme.AppCompat.NoActionBar">
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
             <intent-filter> <!-- Media protocols -->
                 <action android:name="android.intent.action.VIEW" />
 
@@ -132,7 +133,7 @@
                 <data android:pathPattern=".*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.mov" />
-                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\.mov" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.mov" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\.mov" />
 
                 <data android:pathPattern=".*\\.m4v" />
@@ -254,20 +255,6 @@
             android:screenOrientation="behind"
             android:theme="@style/FilePickerThemeSpecial"
             android:exported="false" />
-
-        <activity
-            android:name=".preferences.PreferenceActivity"
-            android:theme="@style/AppTheme.Preference"
-            android:parentActivityName=".MainActivity"
-            android:launchMode="singleTop"
-            android:label="@string/title_activity_settings" />
-
-        <activity
-            android:name=".preferences.AboutActivity"
-            android:theme="@style/AppTheme.Preference"
-            android:parentActivityName=".preferences.PreferenceActivity"
-            android:launchMode="singleTop"
-            android:label="@string/pref_header_about_mpv" />
 
         <service
             android:name=".BackgroundPlaybackService"

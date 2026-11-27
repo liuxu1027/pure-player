@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ListPreference
+        app:defaultValue=""
+        app:entries="@array/stats_entries"
+        app:entryValues="@array/stats_values"
+        app:key="stats_mode"
+        app:title="显示统计信息"
+        app:useSimpleSummaryProvider="true" />
+
+    <CheckBoxPreference
+        app:defaultValue="false"
+        app:key="gpudebug"
+        app:summary="开启 OpenGL 调试输出"
+        app:title="OpenGL 调试" />
+
+    <CheckBoxPreference
+        app:defaultValue="false"
+        app:key="gpu_next"
+        app:summary="使用基于 libplacebo 的新视频渲染后端"
+        app:title="使用 gpu-next" />
+
+</PreferenceScreen>
