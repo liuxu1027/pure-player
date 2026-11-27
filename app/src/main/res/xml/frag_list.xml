@@ -66,5 +66,10 @@
             app:key="home_show_hidden"
             app:summary="显示隐藏文件和文件夹"
             app:title="显示隐藏文件和文件夹" />
+
+        <Preference
+            app:key="excluded_folders"
+            app:summary="暂无已排除的文件夹"
+            app:title="已排除的文件夹" />
     </PreferenceCategory>
 </PreferenceScreen>
