@@ -73,6 +73,8 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
     private var activityIsForeground = true
     private var didResumeBackgroundPlayback = false
     private var userIsOperatingSeekbar = false
+    // 画面比例循环下标（0=原始，见 openAdvancedMenu 里的 aspectBtn）
+    private var aspectIndex = 0
 
     private var toast: Toast? = null
 
@@ -1504,21 +1506,20 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver, TouchGesturesObse
                     MPVLib.command(arrayOf("script-binding", "stats/display-stats-toggle")); true
                 },
                 MenuItem(R.id.aspectBtn) {
+                    // 点一下切到下一个比例，循环，不弹窗
                     val ratios = resources.getStringArray(R.array.aspect_ratios)
-                    with (AlertDialog.Builder(this)) {
-                        setItems(R.array.aspect_ratio_names) { dialog, item ->
-                            if (ratios[item] == "panscan") {
-                                MPVLib.setPropertyString("video-aspect-override", "-1")
-                                MPVLib.setPropertyDouble("panscan", 1.0)
-                            } else {
-                                MPVLib.setPropertyString("video-aspect-override", ratios[item])
-                                MPVLib.setPropertyDouble("panscan", 0.0)
-                            }
-                            dialog.dismiss()
-                        }
-                        setOnDismissListener { restoreState() }
-                        create().show()
-                    }; false
+                    val names = resources.getStringArray(R.array.aspect_ratio_names)
+                    aspectIndex = (aspectIndex + 1) % ratios.size
+                    val ratio = ratios[aspectIndex]
+                    if (ratio == "panscan") {
+                        MPVLib.setPropertyString("video-aspect-override", "-1")
+                        MPVLib.setPropertyDouble("panscan", 1.0)
+                    } else {
+                        MPVLib.setPropertyString("video-aspect-override", ratio)
+                        MPVLib.setPropertyDouble("panscan", 0.0)
+                    }
+                    Toast.makeText(this, names[aspectIndex], Toast.LENGTH_SHORT).show()
+                    false
                 },
         )
 
