@@ -754,6 +754,8 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
             }
         }
         // 过滤：隐藏文件/文件夹、.nomedia 文件夹（按弹窗“高级”里的开关）
+        // 注意：filtered 必须是 List<VideoItem>——filter() 返回 List，
+        // 若从 mutableListOf 的 videos 推断成 MutableList，两处 filter 赋值都会编译报错
         val showHidden = prefs.getBoolean(KEY_SHOW_HIDDEN, false)
         val recognizeNomedia = prefs.getBoolean(KEY_RECOGNIZE_NOMEDIA, true)
         var filtered: List<VideoItem> = videos
