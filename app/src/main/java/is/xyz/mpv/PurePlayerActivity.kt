@@ -1166,13 +1166,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     }
 
     // ---- 屏幕旋转 ----
-    // 顶部菜单“屏幕旋转”：在跟随系统 / 锁定横屏 / 锁定竖屏 / 跟随视频之间循环，
+    // 顶部菜单“屏幕旋转”：在跟随系统 / 锁定横屏 / 锁定竖屏之间循环，
     // 每点一次切一个并 Toast 当前模式。
     //（之前是“锁定横屏”开关，但 manifest 写死了 sensorLandscape，关了也回不去，
     // 看起来像点了没反应；循环 + 去掉 manifest 的写死才能真正切换。）
+    // 注意：2026-11-27 删掉“跟随视频”——它在 onCreate 里读 video-params 会 native 闪退。
     private fun cycleOrientation() {
-        val modes = arrayOf("system", "landscape", "portrait", "video")
-        val names = arrayOf("跟随系统", "锁定横屏", "锁定竖屏", "跟随视频")
+        val modes = arrayOf("system", "landscape", "portrait")
+        val names = arrayOf("跟随系统", "锁定横屏", "锁定竖屏")
         val cur = prefs.getString("player_orientation", "system") ?: "system"
         val next = (modes.indexOf(cur).takeIf { it >= 0 } ?: 0) + 1
         val idx = next % modes.size
@@ -1182,23 +1183,13 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         refreshMenu()
     }
 
-    /** 设置里的方向：跟随系统 / 横屏 / 竖屏 / 跟随视频（按视频宽高比定） */
+    /** 设置里的方向：跟随系统 / 横屏 / 竖屏（“跟随视频”已删：它在 onCreate 里读 video-params 会 native 闪退；旧值 "video" 落到 else 按跟随系统处理） */
     private fun applyOrientationSetting() {
         when (prefs.getString("player_orientation", "system")) {
             "landscape" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             "portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            "video" -> applyVideoOrientation()
             else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
-    }
-
-    /** 跟随视频：按当前视频宽高比定方向；参数还没就绪时不动（时长回调里再试） */
-    private fun applyVideoOrientation() {
-        if (prefs.getString("player_orientation", "system") != "video") return
-        val w = MPVLib.getPropertyInt("video-params/w") ?: 0
-        val h = MPVLib.getPropertyInt("video-params/h") ?: 0
-        if (w > h) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else if (h > w) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
     }
 
     /** 设置里的亮度：跟随系统 = 不改；否则按固定值设（之后手势亮度仍可调） */
@@ -2006,8 +1997,6 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                 "duration" -> {
                     totalDurationSec = value
                     updateTotalDurationText()
-                    // 跟随视频方向：时长到了说明视频参数已就绪，这时按宽高比定方向
-                    applyVideoOrientation()
                 }
 
                 "time-pos" -> {

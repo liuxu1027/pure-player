@@ -4,13 +4,11 @@
         <item>跟随系统</item>
         <item>横屏</item>
         <item>竖屏</item>
-        <item>跟随视频</item>
     </string-array>
     <string-array name="values_player_orientation">
         <item>system</item>
         <item>landscape</item>
         <item>portrait</item>
-        <item>video</item>
     </string-array>
     <string-array name="entries_player_brightness">
         <item>跟随系统</item>
