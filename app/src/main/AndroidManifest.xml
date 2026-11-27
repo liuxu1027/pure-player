@@ -214,6 +214,12 @@
             android:theme="@style/AppTheme.Preference" />
 
         <activity
+            android:name=".VaultActivity"
+            android:exported="false"
+            android:label="@string/vault_title"
+            android:theme="@style/AppTheme.Preference" />
+
+        <activity
             android:name=".MPVActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:supportsPictureInPicture="true"

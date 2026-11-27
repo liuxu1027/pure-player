@@ -236,4 +236,21 @@
     <string name="home_mine_about">关于</string>
     <string name="home_mine_about_sub">Pure Player · 基于 mpv 播放核心</string>
     <string name="home_about_text">Pure Player\n版本 %1$s\n\n基于 mpv 播放核心</string>
+    <string name="home_mine_vault">私密库</string>
+    <string name="home_mine_vault_sub">已隐藏 %1$d 个视频</string>
+    <string name="vault_title">私密库</string>
+    <string name="vault_empty">私密库是空的</string>
+    <string name="vault_restore">移出</string>
+    <string name="vault_restore_title">移出私密库</string>
+    <string name="vault_restore_confirm">确定要把「%1$s」移回原来的位置吗？</string>
+    <string name="vault_restore_ok">移出</string>
+    <string name="vault_restore_done">已移回原位置</string>
+    <string name="vault_restore_failed">移回失败，文件未动</string>
+    <string name="vault_file_missing">文件不存在</string>
+    <string name="vault_move_title">移入私密库</string>
+    <string name="vault_move_confirm">把「%1$s」移入私密库吗？移入后它将从相册和文件管理器中隐藏。</string>
+    <string name="vault_move_ok">移入</string>
+    <string name="vault_move_done">已移入私密库</string>
+    <string name="vault_move_failed">移入失败，文件未动</string>
+    <string name="vault_move_cancelled">已取消</string>
 </resources>

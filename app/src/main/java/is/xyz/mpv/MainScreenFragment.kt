@@ -3,6 +3,7 @@ package `is`.xyz.mpv
 import `is`.xyz.mpv.databinding.FragmentMainScreenBinding
 import android.Manifest
 import android.app.Activity
+import android.app.RecoverableSecurityException
 import android.content.ActivityNotFoundException
 import android.content.ContentUris
 import android.content.Context
@@ -22,8 +23,10 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -50,6 +53,9 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private lateinit var filePickerLauncher: ActivityResultLauncher<Intent>
     private lateinit var playerLauncher: ActivityResultLauncher<Intent>
     private lateinit var permissionLauncher: ActivityResultLauncher<String>
+    private lateinit var consentLauncher: ActivityResultLauncher<IntentSenderRequest>
+
+    private var pendingVaultMove: VaultStore.PendingMove? = null
 
     private var lastPath = ""
 
@@ -64,6 +70,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     private val adapter = HomeAdapter(
         onFolderClick = { folder -> openFolder(folder.name) },
         onVideoClick = { video -> playFile(video.uri) },
+        onVideoLongClick = { video -> moveVideoToVault(video) },
         onMineClick = { action -> onMineAction(action) }
     )
 
@@ -115,6 +122,34 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         }
         permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) loadMedia() else refresh()
+        }
+        consentLauncher = registerForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { result ->
+            val pending = pendingVaultMove
+            pendingVaultMove = null
+            val ctx = context
+            if (pending == null || ctx == null) return@registerForActivityResult
+            if (result.resultCode == Activity.RESULT_OK) {
+                Thread {
+                    try {
+                        VaultStore.deleteOriginal(ctx, pending)
+                        VaultStore.completeMove(ctx, pending)
+                        activity?.runOnUiThread {
+                            if (isAdded) loadMedia()
+                            Toast.makeText(ctx, R.string.vault_move_done, Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        VaultStore.cancelMove(pending)
+                        activity?.runOnUiThread {
+                            Toast.makeText(ctx, R.string.vault_move_failed, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            } else {
+                VaultStore.cancelMove(pending)
+                Toast.makeText(ctx, R.string.vault_move_cancelled, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -296,6 +331,12 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 R.drawable.ic_settings
             ),
             HomeListItem.Mine(
+                MineAction.VAULT,
+                getString(R.string.home_mine_vault),
+                getString(R.string.home_mine_vault_sub, VaultStore.loadItems(requireContext()).size),
+                R.drawable.ic_lock
+            ),
+            HomeListItem.Mine(
                 MineAction.OPEN_FILE,
                 getString(R.string.home_mine_open_file),
                 getString(R.string.home_mine_open_file_sub),
@@ -326,6 +367,9 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         when (action) {
             MineAction.SETTINGS -> {
                 startActivity(Intent(context, PureSettingsActivity::class.java))
+            }
+            MineAction.VAULT -> {
+                startActivity(Intent(context, VaultActivity::class.java))
             }
             MineAction.OPEN_FILE -> {
                 val i = Intent(context, FilePickerActivity::class.java)
@@ -442,6 +486,45 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         playerLauncher.launch(i)
     }
 
+    private fun moveVideoToVault(video: VideoItem) {
+        val ctx = requireContext()
+        AlertDialog.Builder(ctx)
+            .setTitle(R.string.vault_move_title)
+            .setMessage(getString(R.string.vault_move_confirm, video.name))
+            .setPositiveButton(R.string.vault_move_ok) { _, _ ->
+                Thread {
+                    val pending = VaultStore.copyToVault(ctx, video)
+                    if (pending == null) {
+                        activity?.runOnUiThread {
+                            Toast.makeText(ctx, R.string.vault_move_failed, Toast.LENGTH_SHORT).show()
+                        }
+                        return@Thread
+                    }
+                    try {
+                        VaultStore.deleteOriginal(ctx, pending)
+                        VaultStore.completeMove(ctx, pending)
+                        activity?.runOnUiThread {
+                            if (isAdded) loadMedia()
+                            Toast.makeText(ctx, R.string.vault_move_done, Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: RecoverableSecurityException) {
+                        pendingVaultMove = pending
+                        val sender = e.userAction.actionIntent.intentSender
+                        activity?.runOnUiThread {
+                            consentLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                        }
+                    } catch (e: Exception) {
+                        VaultStore.cancelMove(pending)
+                        activity?.runOnUiThread {
+                            Toast.makeText(ctx, R.string.vault_move_failed, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
     companion object {
         private const val TAG = "mpv"
         private const val ACCENT_BLUE = "#3c8cf0"
@@ -452,7 +535,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
 private enum class Tab { LOCAL, ALL, MINE }
 
-private enum class MineAction { SETTINGS, OPEN_FILE, OPEN_URL, OPEN_DOC_TREE, ABOUT }
+private enum class MineAction { SETTINGS, VAULT, OPEN_FILE, OPEN_URL, OPEN_DOC_TREE, ABOUT }
 
 /** Shared with the private vault (VaultStore) — kept public on purpose. */
 data class VideoItem(
@@ -482,6 +565,7 @@ private sealed class HomeListItem {
 private class HomeAdapter(
     private val onFolderClick: (FolderItem) -> Unit,
     private val onVideoClick: (VideoItem) -> Unit,
+    private val onVideoLongClick: (VideoItem) -> Unit,
     private val onMineClick: (MineAction) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -509,7 +593,7 @@ private class HomeAdapter(
             }
             TYPE_VIDEO -> {
                 val v = inflater.inflate(R.layout.item_media_video, parent, false)
-                VideoViewHolder(v, onVideoClick)
+                VideoViewHolder(v, onVideoClick, onVideoLongClick)
             }
             else -> {
                 val v = inflater.inflate(R.layout.item_mine, parent, false)
@@ -554,7 +638,8 @@ private class HomeAdapter(
 
     private class VideoViewHolder(
         view: View,
-        private val onVideoClick: (VideoItem) -> Unit
+        private val onVideoClick: (VideoItem) -> Unit,
+        private val onVideoLongClick: (VideoItem) -> Unit
     ) : RecyclerView.ViewHolder(view) {
         private val videoName: TextView = view.findViewById(R.id.videoName)
         private val videoMeta: TextView = view.findViewById(R.id.videoMeta)
@@ -562,6 +647,10 @@ private class HomeAdapter(
 
         init {
             view.setOnClickListener { video?.let(onVideoClick) }
+            view.setOnLongClickListener {
+                video?.let(onVideoLongClick)
+                true
+            }
         }
 
         fun bind(item: VideoItem) {
