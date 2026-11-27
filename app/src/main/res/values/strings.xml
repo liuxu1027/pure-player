@@ -75,7 +75,7 @@
     <string name="action_toggle_filter">Toggle filter</string>
 
     <!-- Strings related to Settings -->
-    <!-- Kept on purpose: these 10 "*_default" strings are NOT only used by the
+    <!-- Kept on purpose: these "*_default" strings are NOT only used by the
          deleted old mpv preference screens — live code still reads them as
          SharedPreferences fallbacks, so deleting them would break the build:
          - MPVActivity.readSettings(): pref_background_play_default,
@@ -84,7 +84,10 @@
          - TouchGestures.syncSettings(): pref_gesture_horiz_default,
            pref_gesture_vert_left_default, pref_gesture_vert_right_default,
            pref_gesture_tap_left_default, pref_gesture_tap_center_default,
-           pref_gesture_tap_right_default -->
+           pref_gesture_tap_right_default
+         - BackgroundPlaybackService.createNotificationChannel():
+           pref_background_play_title (notification channel name) -->
+    <string name="pref_background_play_title">Background playback</string>
     <string name="pref_background_play_default" translatable="false">never</string>
     <string name="pref_no_ui_pause_default" translatable="false">audio-only</string>
     <string name="pref_auto_rotation_default" translatable="false">auto</string>
