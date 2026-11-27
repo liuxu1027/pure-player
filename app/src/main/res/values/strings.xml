@@ -253,4 +253,24 @@
     <string name="vault_move_done">已移入私密库</string>
     <string name="vault_move_failed">移入失败，文件未动</string>
     <string name="vault_move_cancelled">已取消</string>
+    <string name="home_mine_change_pin">修改私密库 PIN</string>
+    <string name="home_mine_change_pin_sub">修改进入私密库的 4 位 PIN</string>
+    <string name="pin_unlock_title">输入 PIN</string>
+    <string name="pin_setup_title">设置私密库 PIN</string>
+    <string name="pin_setup_new">设置新的 4 位 PIN</string>
+    <string name="pin_enter_old">输入旧 PIN</string>
+    <string name="pin_confirm_title">再输一次确认</string>
+    <string name="pin_saved">PIN 已保存</string>
+    <string name="pin_wrong">PIN 不正确，还能再试 %1$d 次</string>
+    <string name="pin_wrong_locked">PIN 不正确，已锁定</string>
+    <string name="pin_wrong_old">旧 PIN 不正确</string>
+    <string name="pin_mismatch">两次输入不一致，请重新设置</string>
+    <string name="pin_locked_min">输错太多次，已锁定，请 %1$d 分 %2$d 秒后再试</string>
+    <string name="pin_locked_sec">输错太多次，已锁定，请 %1$d 秒后再试</string>
+    <string name="pin_forgot">忘记 PIN</string>
+    <string name="pin_forgot_title">忘记 PIN</string>
+    <string name="pin_forgot_message">忘记 PIN 会把私密库里的全部视频移回原来的位置，并清除 PIN。确定要继续吗？</string>
+    <string name="pin_forgot_confirm">全部移回原处</string>
+    <string name="pin_forgot_done">已把隐藏的视频全部移回原处，PIN 已清除</string>
+    <string name="pin_forgot_partial">部分视频未能移回原处（%1$d 个），PIN 已清除，请到私密库里手动移出</string>
 </resources>

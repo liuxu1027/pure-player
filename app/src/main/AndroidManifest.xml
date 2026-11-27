@@ -220,6 +220,12 @@
             android:theme="@style/AppTheme.Preference" />
 
         <activity
+            android:name=".PinActivity"
+            android:exported="false"
+            android:label="@string/pin_unlock_title"
+            android:theme="@style/AppTheme.Preference" />
+
+        <activity
             android:name=".MPVActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
             android:supportsPictureInPicture="true"

@@ -323,44 +323,66 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
     }
 
     private fun mineItems(): List<HomeListItem> {
-        return listOf(
-            HomeListItem.Mine(
-                MineAction.SETTINGS,
-                getString(R.string.home_mine_settings),
-                getString(R.string.home_mine_settings_sub),
-                R.drawable.ic_settings
-            ),
-            HomeListItem.Mine(
-                MineAction.VAULT,
-                getString(R.string.home_mine_vault),
-                getString(R.string.home_mine_vault_sub, VaultStore.loadItems(requireContext()).size),
-                R.drawable.ic_lock
-            ),
-            HomeListItem.Mine(
-                MineAction.OPEN_FILE,
-                getString(R.string.home_mine_open_file),
-                getString(R.string.home_mine_open_file_sub),
-                R.drawable.ic_folder
-            ),
-            HomeListItem.Mine(
-                MineAction.OPEN_URL,
-                getString(R.string.home_mine_open_url),
-                getString(R.string.home_mine_open_url_sub),
-                R.drawable.ic_video
-            ),
-            HomeListItem.Mine(
-                MineAction.OPEN_DOC_TREE,
-                getString(R.string.home_mine_open_doc_tree),
-                getString(R.string.home_mine_open_doc_tree_sub),
-                R.drawable.ic_folder
-            ),
-            HomeListItem.Mine(
-                MineAction.ABOUT,
-                getString(R.string.home_mine_about),
-                getString(R.string.home_mine_about_sub),
-                R.drawable.ic_settings
+        return buildList {
+            add(
+                HomeListItem.Mine(
+                    MineAction.SETTINGS,
+                    getString(R.string.home_mine_settings),
+                    getString(R.string.home_mine_settings_sub),
+                    R.drawable.ic_settings
+                )
             )
-        )
+            add(
+                HomeListItem.Mine(
+                    MineAction.VAULT,
+                    getString(R.string.home_mine_vault),
+                    getString(R.string.home_mine_vault_sub, VaultStore.loadItems(requireContext()).size),
+                    R.drawable.ic_lock
+                )
+            )
+            if (PinStore.hasPin(requireContext())) {
+                add(
+                    HomeListItem.Mine(
+                        MineAction.CHANGE_PIN,
+                        getString(R.string.home_mine_change_pin),
+                        getString(R.string.home_mine_change_pin_sub),
+                        R.drawable.ic_lock
+                    )
+                )
+            }
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_FILE,
+                    getString(R.string.home_mine_open_file),
+                    getString(R.string.home_mine_open_file_sub),
+                    R.drawable.ic_folder
+                )
+            )
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_URL,
+                    getString(R.string.home_mine_open_url),
+                    getString(R.string.home_mine_open_url_sub),
+                    R.drawable.ic_video
+                )
+            )
+            add(
+                HomeListItem.Mine(
+                    MineAction.OPEN_DOC_TREE,
+                    getString(R.string.home_mine_open_doc_tree),
+                    getString(R.string.home_mine_open_doc_tree_sub),
+                    R.drawable.ic_folder
+                )
+            )
+            add(
+                HomeListItem.Mine(
+                    MineAction.ABOUT,
+                    getString(R.string.home_mine_about),
+                    getString(R.string.home_mine_about_sub),
+                    R.drawable.ic_settings
+                )
+            )
+        }
     }
 
     private fun onMineAction(action: MineAction) {
@@ -369,7 +391,14 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 startActivity(Intent(context, PureSettingsActivity::class.java))
             }
             MineAction.VAULT -> {
-                startActivity(Intent(context, VaultActivity::class.java))
+                val i = Intent(context, PinActivity::class.java)
+                i.putExtra(PinActivity.EXTRA_MODE, PinActivity.MODE_UNLOCK)
+                startActivity(i)
+            }
+            MineAction.CHANGE_PIN -> {
+                val i = Intent(context, PinActivity::class.java)
+                i.putExtra(PinActivity.EXTRA_MODE, PinActivity.MODE_CHANGE)
+                startActivity(i)
             }
             MineAction.OPEN_FILE -> {
                 val i = Intent(context, FilePickerActivity::class.java)
@@ -535,7 +564,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
 private enum class Tab { LOCAL, ALL, MINE }
 
-private enum class MineAction { SETTINGS, VAULT, OPEN_FILE, OPEN_URL, OPEN_DOC_TREE, ABOUT }
+private enum class MineAction { SETTINGS, VAULT, CHANGE_PIN, OPEN_FILE, OPEN_URL, OPEN_DOC_TREE, ABOUT }
 
 /** Shared with the private vault (VaultStore) — kept public on purpose. */
 data class VideoItem(
