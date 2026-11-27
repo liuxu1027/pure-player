@@ -20,6 +20,45 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        app:key="category_player_screen"
+        app:title="屏幕">
+
+        <ListPreference
+            app:defaultValue="system"
+            app:entries="@array/entries_player_orientation"
+            app:entryValues="@array/values_player_orientation"
+            app:key="player_orientation"
+            app:title="方向"
+            app:useSimpleSummaryProvider="true" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="player_fullscreen"
+            app:summary="播放时隐藏状态栏和导航栏"
+            app:title="全屏" />
+
+        <ListPreference
+            app:defaultValue="system"
+            app:entries="@array/entries_player_brightness"
+            app:entryValues="@array/values_player_brightness"
+            app:key="player_brightness"
+            app:title="亮度"
+            app:useSimpleSummaryProvider="true" />
+
+        <CheckBoxPreference
+            app:defaultValue="false"
+            app:key="player_show_remaining"
+            app:summary="总时长处显示剩余时间（-MM:SS）"
+            app:title="显示剩余时间" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="player_keep_screen_on"
+            app:summary="播放时屏幕不自动熄灭"
+            app:title="保持屏幕开启" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_player_playback"
         app:title="播放">
 

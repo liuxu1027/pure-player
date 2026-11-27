@@ -253,9 +253,13 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         rotationLocked = prefs.getBoolean(PREF_ROTATION_LOCKED, false)
         if (rotationLocked) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            applyOrientationSetting()
         }
 
         bindViews()
+        // 保持屏幕开启：设置关时允许系统按超时熄屏（布局里默认是 true）
+        playerRoot.keepScreenOn = prefs.getBoolean("player_keep_screen_on", true)
         setupEdgeToEdge()
 
         stickyVideoMode = prefs.getString("sticky_video", "pip") ?: "pip"
@@ -461,6 +465,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         // 记录上次播放（首页“上次播放标记 / 悬浮按钮 / 播放历史”用）
         currentVideoPath?.takeIf { it.startsWith("/") }?.let { saveLastPlayed(it) }
+        // 换片时按设置重设亮度
+        applyBrightnessSetting()
 
         tvTitle.text = title
         // 换片重置 A-B 循环与进度
@@ -722,11 +728,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         scheduleControlsHide()
     }
 
-    /** 隐藏控制层（含顶部菜单一排），同时隐藏系统栏（从屏幕边缘下滑可临时唤出） */
+    /** 隐藏控制层（含顶部菜单一排），同时隐藏系统栏（从屏幕边缘下滑可临时唤出）；
+     * “全屏”设置关时不藏系统栏 */
     private fun hideControls() {
         controlsHideHandler.removeCallbacks(controlsHideRunnable)
         playerOverlay.visibility = View.GONE
-        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        if (prefs.getBoolean("player_fullscreen", true)) {
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
         updateBigPlayVisibility()
     }
 
@@ -1131,10 +1140,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private fun toggleRotationLock() {
         rotationLocked = !rotationLocked
         prefs.edit().putBoolean(PREF_ROTATION_LOCKED, rotationLocked).apply()
-        requestedOrientation = if (rotationLocked) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        if (rotationLocked) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            applyOrientationSetting()
         }
         Toast.makeText(
             this,
@@ -1142,6 +1151,46 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             Toast.LENGTH_SHORT
         ).show()
         refreshMenu()
+    }
+
+    /** 设置里的方向：跟随系统 / 横屏 / 竖屏 / 跟随视频（按视频宽高比定） */
+    private fun applyOrientationSetting() {
+        if (rotationLocked) return
+        when (prefs.getString("player_orientation", "system")) {
+            "landscape" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            "portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            "video" -> applyVideoOrientation()
+            else -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    /** 跟随视频：按当前视频宽高比定方向；参数还没就绪时不动（时长回调里再试） */
+    private fun applyVideoOrientation() {
+        if (rotationLocked) return
+        if (prefs.getString("player_orientation", "system") != "video") return
+        val w = MPVLib.getPropertyInt("video-params/w") ?: 0
+        val h = MPVLib.getPropertyInt("video-params/h") ?: 0
+        if (w > h) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else if (h > w) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+    }
+
+    /** 设置里的亮度：跟随系统 = 不改；否则按固定值设（之后手势亮度仍可调） */
+    private fun applyBrightnessSetting() {
+        val v = prefs.getString("player_brightness", "system") ?: "system"
+        if (v == "system") return
+        val pct = v.toIntOrNull() ?: return
+        val lp = window.attributes
+        lp.screenBrightness = (pct / 100f).coerceIn(0.01f, 1.0f)
+        window.attributes = lp
+    }
+
+    /** 总时长显示：默认是总长；开“显示剩余时间”后显示 -剩余 */
+    private fun updateTotalDurationText() {
+        tvTotalDuration.text = if (prefs.getBoolean("player_show_remaining", false) && totalDurationSec > 0) {
+            "-" + formatTime((totalDurationSec - currentPosSec).coerceAtLeast(0.0))
+        } else {
+            formatTime(totalDurationSec)
+        }
     }
 
     /** 从 mpv track-list 里取指定类型的轨道（音频/字幕共用） */
@@ -1758,13 +1807,16 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             when (property) {
                 "duration" -> {
                     totalDurationSec = value
-                    tvTotalDuration.text = formatTime(value)
+                    updateTotalDurationText()
+                    // 跟随视频方向：时长到了说明视频参数已就绪，这时按宽高比定方向
+                    applyVideoOrientation()
                 }
 
                 "time-pos" -> {
                     currentPosSec = value
                     if (!isSeeking && totalDurationSec > 0) {
                         tvCurrentTime.text = formatTime(value)
+                        updateTotalDurationText()
                         seekBar.progress = ((value / totalDurationSec) * 1000).toInt().coerceIn(0, 1000)
                     }
                 }
