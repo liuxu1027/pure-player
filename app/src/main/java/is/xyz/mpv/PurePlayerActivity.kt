@@ -6,6 +6,7 @@ import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,6 +15,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.media.AudioManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -26,10 +28,13 @@ import android.util.Rational
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -43,6 +48,10 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -71,10 +80,17 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         private const val PREF_SHUFFLE = "shuffle"
         private const val PREF_BACKGROUND_PLAY = "background_play"
         private const val PREF_ROTATION_LOCKED = "rotation_locked"
+
+        // 控制层无操作多久后自动隐藏（毫秒）
+        private const val CONTROLS_DISPLAY_TIMEOUT = 4000L
     }
 
     private lateinit var mpvView: MPVView
+    private lateinit var playerRoot: FrameLayout
     private lateinit var playerOverlay: RelativeLayout
+    private lateinit var topToolbar: LinearLayout
+    private lateinit var bottomController: LinearLayout
+    private lateinit var insetsController: WindowInsetsControllerCompat
     private lateinit var tvTitle: TextView
     private lateinit var btnBack: ImageButton
     private lateinit var btnDecoderMode: TextView
@@ -164,10 +180,20 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     // ---- 顶部菜单一排的状态 ----
     private var gestureSwap = false
     private var shuffleEnabled = false
-    private var loopEnabled = false
+    // 循环三态：0=关，1=列表循环，2=单只循环（与 MPVView.getRepeat() 的返回值一致）
+    private var loopMode = 0
     private var isMuted = false
     private var backgroundPlayEnabled = false
     private var rotationLocked = false
+
+    // ---- 控制层自动隐藏：无操作几秒后连同顶部菜单一排一起隐藏，点一下再出现 ----
+    private val controlsHideHandler = Handler(Looper.getMainLooper())
+    private val controlsHideRunnable = Runnable { hideControls() }
+    private var hasVideo = false
+
+    // ---- 列表循环：手动切歌也会让旧文件走一次 END_FILE，用该标志忽略这一次 ----
+    @Volatile
+    private var ignoreNextEndFile = false
 
     // ---- A-B 重复：0=未设置，1=A 点已设，2=A-B 循环中 ----
     private var abState = 0
@@ -175,6 +201,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     // ---- 定时关闭 ----
     private val sleepHandler = Handler(Looper.getMainLooper())
     private var sleepRunnable: Runnable? = null
+
+    // ---- 截图：mpv 先写到私有目录（中转），落盘后再搬到公开相册 ----
+    private val screenshotHandler = Handler(Looper.getMainLooper())
+    private var screenshotPollRunnable: Runnable? = null
 
     // ---- 同文件夹播放列表 ----
     private data class FolderVideo(val path: String, val contentUri: String, val name: String)
@@ -221,6 +251,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
 
         bindViews()
+        setupEdgeToEdge()
 
         stickyVideoMode = prefs.getString("sticky_video", "pip") ?: "pip"
 
@@ -290,8 +321,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (playerOverlay.visibility == View.VISIBLE) scheduleControlsHide()
+    }
+
     override fun onPause() {
         super.onPause()
+        controlsHideHandler.removeCallbacks(controlsHideRunnable)
         // 画中画或后台播放时保持继续播放，否则暂停
         val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
         if (!inPip && !backgroundPlayEnabled) {
@@ -305,6 +342,9 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
         sleepHandler.removeCallbacksAndMessages(null)
         sleepRunnable = null
+        controlsHideHandler.removeCallbacksAndMessages(null)
+        screenshotPollRunnable?.let { screenshotHandler.removeCallbacks(it) }
+        screenshotPollRunnable = null
         unregisterReceiver(pipActionReceiver)
         MPVLib.removeObserver(this)
         mpvView.destroy()
@@ -358,11 +398,12 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
+            controlsHideHandler.removeCallbacks(controlsHideRunnable)
             playerOverlay.visibility = View.GONE
             btnUnlockFloating.visibility = View.GONE
             gestureHud.visibility = View.GONE
         } else if (!isLocked) {
-            playerOverlay.visibility = View.VISIBLE
+            showControls()
         }
         updateBigPlayVisibility()
     }
@@ -412,9 +453,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("ab-loop-b", "no")
         totalDurationSec = 0.0
         currentPosSec = 0.0
+        // 手动切歌会让旧文件走一次 END_FILE，先立标志，event() 里忽略那一次；
+        // 新文件开始加载（START_FILE）时清掉，之后自然播完的 END_FILE 才能正常触发列表循环
+        ignoreNextEndFile = true
+        hasVideo = true
         mpvView.playFile(playable)
         buildFolderPlaylist()
         refreshMenu()
+        scheduleControlsHide()
     }
 
     /** content:// Uri 在 MediaStore 里对应的文件路径（用于找同文件夹视频），拿不到返回 null */
@@ -523,7 +569,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     private fun bindViews() {
         mpvView = findViewById(R.id.mpv_view)
+        playerRoot = findViewById(R.id.player_root)
         playerOverlay = findViewById(R.id.player_overlay)
+        topToolbar = findViewById(R.id.top_toolbar)
+        bottomController = findViewById(R.id.bottom_controller)
         tvTitle = findViewById(R.id.tv_title)
         btnBack = findViewById(R.id.btn_back)
         btnDecoderMode = findViewById(R.id.btn_decoder_mode)
@@ -550,6 +599,71 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         etSyncValue = findViewById(R.id.et_sync_value)
         subSpeedBar = findViewById(R.id.sub_speed_bar)
         etSubSpeedValue = findViewById(R.id.et_sub_speed_value)
+    }
+
+    /**
+     * 全面屏（不改 styles.xml，全部用代码做）：
+     * 内容延伸到状态栏/刘海/导航栏后面，视频本身占满全屏；
+     * 顶部工具栏顶边 = 状态栏与刘海高度的较大值，底部控制栏底边 = 导航栏高度，
+     * 刘海屏用 shortEdges 让内容可以伸进刘海两侧。
+     */
+    private fun setupEdgeToEdge() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+        // player_overlay 在布局里写了 fitsSystemWindows=true；这里关掉，
+        // 改由下面的手动边距一次性处理，避免系统内边距和手动边距叠加
+        playerOverlay.fitsSystemWindows = false
+        insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        ViewCompat.setOnApplyWindowInsetsListener(playerRoot) { _, insets ->
+            val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val navBar = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val top = statusBar.top.coerceAtLeast(cutout.top)
+            (topToolbar.layoutParams as ViewGroup.MarginLayoutParams).topMargin = top
+            (bottomController.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin =
+                navBar.bottom
+            topToolbar.requestLayout()
+            bottomController.requestLayout()
+            insets
+        }
+    }
+
+    /**
+     * 显示控制层（含顶部菜单一排 rv_quick_actions，它在 player_overlay 里面，
+     * 跟着控制层一起显示/隐藏），同时显示系统栏，并重新开始自动隐藏计时。
+     */
+    private fun showControls() {
+        if (isLocked) return
+        playerOverlay.visibility = View.VISIBLE
+        insetsController.show(WindowInsetsCompat.Type.systemBars())
+        updateBigPlayVisibility()
+        scheduleControlsHide()
+    }
+
+    /** 隐藏控制层（含顶部菜单一排），同时隐藏系统栏（从屏幕边缘下滑可临时唤出） */
+    private fun hideControls() {
+        controlsHideHandler.removeCallbacks(controlsHideRunnable)
+        playerOverlay.visibility = View.GONE
+        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        updateBigPlayVisibility()
+    }
+
+    /**
+     * 无操作几秒后自动隐藏控制层。暂停、锁定、未加载视频时不自动隐藏，
+     * 这样暂停时中央大播放按钮和底部控制栏一直可用。
+     */
+    private fun scheduleControlsHide() {
+        controlsHideHandler.removeCallbacks(controlsHideRunnable)
+        if (hasVideo && !isPaused && !isLocked) {
+            controlsHideHandler.postDelayed(controlsHideRunnable, CONTROLS_DISPLAY_TIMEOUT)
+        }
     }
 
     private fun observeMpvProperties() {
@@ -615,6 +729,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
             override fun onStartTrackingTouch(bar: SeekBar?) {
                 isSeeking = true
+                controlsHideHandler.removeCallbacks(controlsHideRunnable)
             }
 
             override fun onStopTrackingTouch(bar: SeekBar?) {
@@ -623,6 +738,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                     MPVLib.command(arrayOf("seek", targetSec.toString(), "absolute"))
                 }
                 isSeeking = false
+                scheduleControlsHide()
             }
         })
     }
@@ -653,7 +769,13 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         return listOf(
             PlayerMenuItem("gesture_swap", "手势对调", R.drawable.round_gesture_24, gestureSwap),
             PlayerMenuItem("shuffle", "随机", R.drawable.ic_shuffle_24dp, shuffleEnabled),
-            PlayerMenuItem("loop", "循环", R.drawable.ic_repeat_24dp, loopEnabled),
+            // 循环三态：关 = 普通循环图标（未激活态），列表循环 = 循环图标（激活态），
+            // 单只循环 = 单曲循环图标（激活态）
+            PlayerMenuItem(
+                "loop", "循环",
+                if (loopMode == 2) R.drawable.ic_repeat_one_24dp else R.drawable.ic_repeat_24dp,
+                loopMode != 0
+            ),
             PlayerMenuItem("mute", "静音", R.drawable.ic_volume_off, isMuted),
             PlayerMenuItem(
                 "sleep", "定时关闭", R.drawable.ic_timer,
@@ -692,6 +814,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             "background" -> toggleBackgroundPlay()
             "rotation" -> toggleRotationLock()
         }
+        // 点了顶部菜单也算一次操作，重新开始自动隐藏计时
+        scheduleControlsHide()
     }
 
     /** 手势对调：左滑亮度/右滑音量 与 左滑音量/右滑亮度 互换，状态存 SharedPreferences */
@@ -717,13 +841,22 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         refreshMenu()
     }
 
-    /** 循环：mpv loop-file 在 no 与 inf 之间切换 */
+    /**
+     * 循环三态：关 → 列表循环 → 单只循环 → 关（复用 MPVView.cycleRepeat()/getRepeat()）。
+     * 列表循环不靠 mpv loop-playlist（mpv 内部列表永远只有当前一个文件），
+     * 靠 MPV_EVENT_END_FILE 回调里调 playNext() 切同文件夹下一个；
+     * 单只循环靠 mpv loop-file=inf。
+     */
     private fun toggleLoop() {
-        loopEnabled = !loopEnabled
-        MPVLib.setPropertyString("loop-file", if (loopEnabled) "inf" else "no")
+        mpvView.cycleRepeat()
+        loopMode = mpvView.getRepeat()
         Toast.makeText(
             this,
-            if (loopEnabled) "循环播放已开" else "循环播放已关",
+            when (loopMode) {
+                1 -> "循环：列表循环"
+                2 -> "循环：单只循环"
+                else -> "循环已关"
+            },
             Toast.LENGTH_SHORT
         ).show()
         refreshMenu()
@@ -768,9 +901,14 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     }
 
     private fun cancelSleepTimer() {
+        // 只有真的在跑的定时器才提示：startSleepTimer() 里先取消再设置，
+        // 没有这句判断会先弹出“已取消”再弹出“已设置”，出现两条 Toast
+        val hadTimer = sleepRunnable != null
         sleepRunnable?.let { sleepHandler.removeCallbacks(it) }
         sleepRunnable = null
-        Toast.makeText(this, "定时关闭已取消", Toast.LENGTH_SHORT).show()
+        if (hadTimer) {
+            Toast.makeText(this, "定时关闭已取消", Toast.LENGTH_SHORT).show()
+        }
         refreshMenu()
     }
 
@@ -797,17 +935,99 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         refreshMenu()
     }
 
-    // ---- 截图 ----
+    // ---- 截图：私有目录只做中转，落盘后搬到公开相册 ----
+    private fun screenshotStagingDir(): File {
+        return File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "PurePlayer").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
     private fun setupScreenshotDir() {
-        val dir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "PurePlayer")
-        if (!dir.exists()) dir.mkdirs()
-        MPVLib.setPropertyString("screenshot-directory", dir.absolutePath)
+        // mpv 截图先写到私有目录（中转）；takeScreenshot() 等文件落盘后
+        // 再搬到公开相册 Pictures/PurePlayer 并删掉私有副本
+        MPVLib.setPropertyString("screenshot-directory", screenshotStagingDir().absolutePath)
     }
 
     private fun takeScreenshot() {
+        val dir = screenshotStagingDir()
+        val existing = dir.listFiles()?.map { it.name }.orEmpty().toSet()
         MPVLib.command(arrayOf("screenshot"))
-        val dir = File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "PurePlayer")
-        Toast.makeText(this, "已截图，保存在：${dir.absolutePath}", Toast.LENGTH_LONG).show()
+        // mpv 截图是异步写盘：轮询等新文件出现（最多约 5 秒），再搬到公开相册
+        screenshotPollRunnable?.let { screenshotHandler.removeCallbacks(it) }
+        var attempts = 0
+        val poll = object : Runnable {
+            override fun run() {
+                attempts++
+                val newest = dir.listFiles()
+                    ?.filter { it.isFile && it.name !in existing }
+                    ?.maxByOrNull { it.lastModified() }
+                if (newest != null) {
+                    publishScreenshot(newest)
+                } else if (attempts < 16) {
+                    screenshotHandler.postDelayed(this, 300L)
+                } else {
+                    Toast.makeText(this@PurePlayerActivity, "截图超时，请重试", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            }
+        }
+        screenshotPollRunnable = poll
+        screenshotHandler.postDelayed(poll, 300L)
+    }
+
+    /** 把中转目录里的截图搬到公开相册 Pictures/PurePlayer，成功后删掉私有副本 */
+    private fun publishScreenshot(file: File) {
+        val mime = if (file.name.endsWith(".jpg", ignoreCase = true) ||
+            file.name.endsWith(".jpeg", ignoreCase = true)
+        ) "image/jpeg" else "image/png"
+        val publicPath = "Pictures/PurePlayer/${file.name}"
+        var ok = false
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, file.name)
+                    put(MediaStore.Images.Media.MIME_TYPE, mime)
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PurePlayer")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values
+                )
+                if (uri != null) {
+                    contentResolver.openOutputStream(uri)?.use { out ->
+                        file.inputStream().use { input -> input.copyTo(out) }
+                    }
+                    contentResolver.update(
+                        uri,
+                        ContentValues().apply {
+                            put(MediaStore.Images.Media.IS_PENDING, 0)
+                        },
+                        null, null
+                    )
+                    ok = true
+                }
+            } else {
+                // Android 9 及以下没有 RELATIVE_PATH：直接写公开目录再通知媒体库扫描
+                val publicDir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                    "PurePlayer"
+                ).apply { if (!exists()) mkdirs() }
+                val dest = File(publicDir, file.name)
+                file.copyTo(dest, overwrite = true)
+                MediaScannerConnection.scanFile(
+                    this, arrayOf(dest.absolutePath), arrayOf(mime), null
+                )
+                ok = true
+            }
+        } catch (_: Exception) {
+            ok = false
+        }
+        if (ok) {
+            file.delete()
+            Toast.makeText(this, "已保存到相册：$publicPath", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "截图保存失败", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---- 后台播放 ----
@@ -1325,10 +1545,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                 if (isLocked) {
                     btnUnlockFloating.visibility =
                         if (btnUnlockFloating.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                } else if (playerOverlay.visibility == View.VISIBLE) {
+                    // 控制层（含顶部菜单一排）与系统栏一起隐藏
+                    hideControls()
                 } else {
-                    playerOverlay.visibility =
-                        if (playerOverlay.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                    updateBigPlayVisibility()
+                    showControls()
                 }
                 return true
             }
@@ -1416,9 +1637,15 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     private fun setLockState(locked: Boolean) {
         isLocked = locked
-        playerOverlay.visibility = if (locked) View.GONE else View.VISIBLE
-        btnUnlockFloating.visibility = if (locked) View.VISIBLE else View.GONE
-        updateBigPlayVisibility()
+        if (locked) {
+            controlsHideHandler.removeCallbacks(controlsHideRunnable)
+            playerOverlay.visibility = View.GONE
+            btnUnlockFloating.visibility = View.VISIBLE
+            updateBigPlayVisibility()
+        } else {
+            btnUnlockFloating.visibility = View.GONE
+            showControls()
+        }
     }
 
     /**
@@ -1480,6 +1707,12 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                         else R.drawable.ic_pause
                     )
                     updateBigPlayVisibility()
+                    // 暂停时不自动隐藏控制层，恢复播放后重新开始计时
+                    if (value) {
+                        controlsHideHandler.removeCallbacks(controlsHideRunnable)
+                    } else if (playerOverlay.visibility == View.VISIBLE) {
+                        scheduleControlsHide()
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
                         setPictureInPictureParams(buildPipParams())
                     }
@@ -1500,5 +1733,27 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
-    override fun event(eventId: Int) = Unit
+    override fun event(eventId: Int) {
+        when (eventId) {
+            MPVLib.MpvEvent.MPV_EVENT_START_FILE -> {
+                // 新文件开始加载：清掉手动切歌时立的标志，之后自然播完的
+                // END_FILE 才能正常触发列表循环
+                ignoreNextEndFile = false
+            }
+            MPVLib.MpvEvent.MPV_EVENT_END_FILE -> {
+                // 手动切歌（playVideo 发起 loadfile）也会让旧文件走一次
+                // END_FILE，忽略这一次，否则列表循环会在手动切歌后又多跳一首
+                if (ignoreNextEndFile) {
+                    ignoreNextEndFile = false
+                    return
+                }
+                // 单只循环由 mpv loop-file 处理；循环关时不处理
+                if (loopMode != 1) return
+                runOnUiThread {
+                    // 只有一个视频时不提示、不切歌
+                    if (folderPlaylist.size >= 2) playNext()
+                }
+            }
+        }
+    }
 }
