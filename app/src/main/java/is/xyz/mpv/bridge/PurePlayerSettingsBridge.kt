@@ -36,6 +36,28 @@ class PurePlayerSettingsBridge(
     }
 
     /**
+     * 字幕自定义（播放器内字幕自定义面板用）的 SharedPreferences 键。
+     * 对应 mpv 的 sub-* 属性，播放器改动时写这些键，桥接自动同步到 libmpv。
+     */
+    companion object {
+        const val KEY_SUB_ALIGN = "sub_custom_align" // int：0=顶部，1=中部，2=底部（默认）
+        const val KEY_SUB_MARGIN_Y = "sub_custom_margin_y" // int：底部边距，默认 8
+        const val KEY_SUB_BACK_ENABLED = "sub_custom_back_enabled" // boolean：显示背景，默认 false
+        const val KEY_SUB_BACK_COLOR = "sub_custom_back_color" // string：背景颜色，默认 #CC000000
+        const val KEY_SUB_USE_MARGINS = "sub_custom_use_margins" // boolean：贴合视频，默认 true
+        const val KEY_SUB_FONT = "sub_custom_font" // string：字体名，空=默认
+        const val KEY_SUB_FONT_SIZE = "sub_custom_font_size" // int：字号，默认 32
+        const val KEY_SUB_SCALE = "sub_custom_scale" // int：缩放百分比，默认 100
+        const val KEY_SUB_COLOR = "sub_custom_color" // string：文字颜色，默认 #FFFFFF
+        const val KEY_SUB_BOLD = "sub_custom_bold" // boolean：加粗，默认 false
+        const val KEY_SUB_SHADOW_ENABLED = "sub_custom_shadow_enabled" // boolean：文字背景，默认 false
+        const val KEY_SUB_SHADOW_COLOR = "sub_custom_shadow_color" // string：文字背景颜色，默认 #80000000
+        const val KEY_SUB_BORDER_ENABLED = "sub_custom_border_enabled" // boolean：描边，默认 true
+        const val KEY_SUB_BORDER_COLOR = "sub_custom_border_color" // string：描边颜色，默认 #000000
+        const val KEY_SUB_BORDER_SIZE = "sub_custom_border_size" // int：描边粗细，默认 2
+    }
+
+    /**
      * 在 mpv_initialize() 之前调用，配置初始化阶段选项。
      */
     fun applyInitialOptions() {
@@ -87,7 +109,12 @@ class PurePlayerSettingsBridge(
             "bluetooth_audio_delay", "prefer_audio_passthrough_mode", "pause_on_headset_disconnected",
             // frag_subtitle.xml
             "subtitle_folder", "subtitle_charset", "subtitle_language",
-            "subtitle_show_hw", "subtitle_default_sync", "subtitle_hw_accel"
+            "subtitle_show_hw", "subtitle_default_sync", "subtitle_hw_accel",
+            // 字幕自定义面板（播放器内）
+            KEY_SUB_ALIGN, KEY_SUB_MARGIN_Y, KEY_SUB_BACK_ENABLED, KEY_SUB_BACK_COLOR,
+            KEY_SUB_USE_MARGINS, KEY_SUB_FONT, KEY_SUB_FONT_SIZE, KEY_SUB_SCALE,
+            KEY_SUB_COLOR, KEY_SUB_BOLD, KEY_SUB_SHADOW_ENABLED, KEY_SUB_SHADOW_COLOR,
+            KEY_SUB_BORDER_ENABLED, KEY_SUB_BORDER_COLOR, KEY_SUB_BORDER_SIZE
         )
         allKeys.forEach { applyKey(it) }
     }
@@ -248,6 +275,74 @@ class PurePlayerSettingsBridge(
             "subtitle_hw_accel" -> {
                 val blend = prefs.getBoolean("subtitle_hw_accel", true)
                 mpv.setPropertyString("blend-subtitles", if (blend) "yes" else "no")
+            }
+
+            // ========================
+            // 5. 字幕自定义面板（播放器内）
+            // ========================
+            KEY_SUB_ALIGN -> {
+                // 0=顶部，1=中部，2=底部
+                val align = prefs.getInt(KEY_SUB_ALIGN, 2).coerceIn(0, 2)
+                mpv.setPropertyInt("sub-align-y", align)
+            }
+
+            KEY_SUB_MARGIN_Y -> {
+                val margin = prefs.getInt(KEY_SUB_MARGIN_Y, 8).coerceIn(0, 200)
+                mpv.setPropertyInt("sub-margin-y", margin)
+            }
+
+            KEY_SUB_BACK_ENABLED, KEY_SUB_BACK_COLOR -> {
+                val enabled = prefs.getBoolean(KEY_SUB_BACK_ENABLED, false)
+                val color = prefs.getString(KEY_SUB_BACK_COLOR, "#CC000000") ?: "#CC000000"
+                mpv.setPropertyString("sub-back-color", if (enabled) color else "#00000000")
+            }
+
+            KEY_SUB_USE_MARGINS -> {
+                mpv.setPropertyBoolean(
+                    "sub-use-margins",
+                    prefs.getBoolean(KEY_SUB_USE_MARGINS, true)
+                )
+            }
+
+            KEY_SUB_FONT -> {
+                val font = prefs.getString(KEY_SUB_FONT, "")?.trim().orEmpty()
+                if (font.isNotEmpty()) {
+                    mpv.setPropertyString("sub-font", font)
+                }
+            }
+
+            KEY_SUB_FONT_SIZE -> {
+                val size = prefs.getInt(KEY_SUB_FONT_SIZE, 32).coerceIn(12, 96)
+                mpv.setPropertyDouble("sub-font-size", size.toDouble())
+            }
+
+            KEY_SUB_SCALE -> {
+                val scale = prefs.getInt(KEY_SUB_SCALE, 100).coerceIn(50, 200)
+                mpv.setPropertyDouble("sub-scale", scale / 100.0)
+            }
+
+            KEY_SUB_COLOR -> {
+                val color = prefs.getString(KEY_SUB_COLOR, "#FFFFFF") ?: "#FFFFFF"
+                mpv.setPropertyString("sub-color", color)
+            }
+
+            KEY_SUB_BOLD -> {
+                mpv.setPropertyBoolean("sub-bold", prefs.getBoolean(KEY_SUB_BOLD, false))
+            }
+
+            KEY_SUB_SHADOW_ENABLED, KEY_SUB_SHADOW_COLOR -> {
+                // 文字背景：用阴影颜色在文字后形成一层底色
+                val enabled = prefs.getBoolean(KEY_SUB_SHADOW_ENABLED, false)
+                val color = prefs.getString(KEY_SUB_SHADOW_COLOR, "#80000000") ?: "#80000000"
+                mpv.setPropertyString("sub-shadow-color", if (enabled) color else "#00000000")
+            }
+
+            KEY_SUB_BORDER_ENABLED, KEY_SUB_BORDER_COLOR, KEY_SUB_BORDER_SIZE -> {
+                val enabled = prefs.getBoolean(KEY_SUB_BORDER_ENABLED, true)
+                val color = prefs.getString(KEY_SUB_BORDER_COLOR, "#000000") ?: "#000000"
+                val size = prefs.getInt(KEY_SUB_BORDER_SIZE, 2).coerceIn(0, 8)
+                mpv.setPropertyString("sub-border-color", color)
+                mpv.setPropertyDouble("sub-border-size", if (enabled) size.toDouble() else 0.0)
             }
         }
     }

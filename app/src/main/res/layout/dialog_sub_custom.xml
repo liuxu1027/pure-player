@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 字幕自定义面板（MX 风格）：布局 + 文字，对应 mpv sub-* 属性 -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="字幕布局"
+            android:textColor="#3c8cf0"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="对齐"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_align"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="底部边距"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <SeekBar
+                android:id="@+id/sb_sub_margin_y"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100" />
+
+            <TextView
+                android:id="@+id/tv_sub_margin_y"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cb_sub_back"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="背景"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_back_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/cb_sub_use_margins"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="贴合视频"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="字幕文字"
+            android:textColor="#3c8cf0"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="字体"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_font"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="大小"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <SeekBar
+                android:id="@+id/sb_sub_font_size"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="60" />
+
+            <TextView
+                android:id="@+id/tv_sub_font_size"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="缩放"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <SeekBar
+                android:id="@+id/sb_sub_scale"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="150" />
+
+            <TextView
+                android:id="@+id/tv_sub_scale"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="颜色"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <CheckBox
+                android:id="@+id/cb_sub_bold"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="加粗"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cb_sub_shadow"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="文字背景"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_shadow_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <CheckBox
+                android:id="@+id/cb_sub_border"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="描边"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <Spinner
+                android:id="@+id/sp_sub_border_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="110dp"
+                android:layout_height="wrap_content"
+                android:text="描边粗细"
+                android:textColor="#FFFFFF"
+                android:textSize="15sp" />
+
+            <SeekBar
+                android:id="@+id/sb_sub_border_size"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="8" />
+
+            <TextView
+                android:id="@+id/tv_sub_border_size"
+                android:layout_width="44dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

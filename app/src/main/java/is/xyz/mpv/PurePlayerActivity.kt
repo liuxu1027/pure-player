@@ -26,13 +26,19 @@ import android.util.Rational
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.SeekBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -91,11 +97,51 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private lateinit var tvGestureValue: TextView
     private lateinit var rvQuickActions: RecyclerView
 
+    // ---- 字幕覆盖层（同步 / 速度悬浮条） ----
+    private lateinit var subSyncBar: LinearLayout
+    private lateinit var etSyncValue: EditText
+    private lateinit var subSpeedBar: LinearLayout
+    private lateinit var etSubSpeedValue: EditText
+
     private lateinit var audioManager: AudioManager
     private lateinit var settingsBridge: PurePlayerSettingsBridge
     private lateinit var gestureDetector: GestureDetector
     private lateinit var prefs: SharedPreferences
     private lateinit var menuAdapter: PlayerMenuAdapter
+
+    // 外挂字幕选择器：挑一个字幕文件，拷到缓存后 sub-add
+    private val subPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) addExternalSubtitle(uri)
+    }
+
+    // 字幕颜色选项（名 -> mpv 颜色值 #RRGGBB / #RRGGBBAA）
+    private val subTextColors = listOf(
+        "白色" to "#FFFFFF",
+        "黄色" to "#FFFF00",
+        "绿色" to "#00FF00",
+        "青色" to "#00FFFF",
+        "蓝色" to "#3c8cf0",
+        "紫色" to "#FF00FF",
+        "红色" to "#FF0000",
+        "橙色" to "#FFA500",
+        "黑色" to "#000000"
+    )
+    private val subBgColors = listOf(
+        "半透明黑" to "#CC000000",
+        "黑色" to "#FF000000",
+        "白色" to "#FFFFFFFF",
+        "半透明白" to "#CCFFFFFF",
+        "红色" to "#CCFF0000",
+        "蓝色" to "#CC0000FF"
+    )
+    private val subFonts = listOf(
+        "默认" to "",
+        "无衬线" to "sans-serif",
+        "衬线" to "serif",
+        "等宽" to "monospace"
+    )
 
     private var activePfd: ParcelFileDescriptor? = null
     private var isLocked = false
@@ -195,6 +241,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         setupControls()
         setupMenuRow()
+        setupSubtitleBars()
         setupGestures()
 
         ContextCompat.registerReceiver(
@@ -496,6 +543,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         tvGestureTitle = findViewById(R.id.tv_gesture_title)
         tvGestureValue = findViewById(R.id.tv_gesture_value)
         rvQuickActions = findViewById(R.id.rv_quick_actions)
+        subSyncBar = findViewById(R.id.sub_sync_bar)
+        etSyncValue = findViewById(R.id.et_sync_value)
+        subSpeedBar = findViewById(R.id.sub_speed_bar)
+        etSubSpeedValue = findViewById(R.id.et_sub_speed_value)
     }
 
     private fun observeMpvProperties() {
@@ -528,7 +579,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
 
         btnSubtitleTrack.setOnClickListener {
-            showTrackPickerDialog(trackType = "sub", dialogTitle = "选择字幕", propName = "sid")
+            showSubtitleMenu()
         }
 
         btnAspectRatio.setOnClickListener {
@@ -790,10 +841,10 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         refreshMenu()
     }
 
-    private fun showTrackPickerDialog(trackType: String, dialogTitle: String, propName: String) {
+    /** 从 mpv track-list 里取指定类型的轨道（音频/字幕共用） */
+    private fun fetchTracks(trackType: String): List<TrackItem> {
         val rawJson = MPVLib.getPropertyString("track-list") ?: "[]"
         val tracks = mutableListOf<TrackItem>()
-
         try {
             val array = JSONArray(rawJson)
             for (i in 0 until array.length()) {
@@ -804,7 +855,6 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                     val lang = obj.optString("lang").takeIf { it.isNotBlank() }
                     val codec = obj.optString("codec").takeIf { it.isNotBlank() }
                     val selected = obj.optBoolean("selected", false)
-
                     val parts = listOfNotNull(title, lang, codec?.uppercase(Locale.US))
                     val display = if (parts.isEmpty()) "轨道 #$id" else parts.joinToString(" · ")
                     tracks.add(TrackItem(id, display, selected))
@@ -812,6 +862,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         } catch (_: Exception) {
         }
+        return tracks
+    }
+
+    private fun showTrackPickerDialog(trackType: String, dialogTitle: String, propName: String) {
+        val tracks = fetchTracks(trackType)
 
         val labels = mutableListOf("关闭 / 禁用")
         labels.addAll(tracks.map { it.label })
@@ -830,6 +885,408 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    // ========================
+    // 字幕系统（MX 风格）
+    // 菜单：选轨道 / 打开外挂字幕 / 设置（同步、速度、自定义）
+    // ========================
+
+    private fun showSubtitleMenu() {
+        val view = layoutInflater.inflate(R.layout.dialog_subtitle_menu, null)
+        val containerTracks = view.findViewById<LinearLayout>(R.id.container_tracks)
+        val tvSyncValue = view.findViewById<TextView>(R.id.tv_sync_value)
+        val tvSpeedValue = view.findViewById<TextView>(R.id.tv_speed_value)
+
+        val curDelay = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+        tvSyncValue.text = formatDelayText(curDelay)
+        val curSpeed = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
+        tvSpeedValue.text = "${(curSpeed * 100).toInt()}%"
+
+        val tracks = fetchTracks("sub")
+        val noneSelected = tracks.none { it.selected }
+
+        lateinit var dialog: AlertDialog
+        fun addTrack(label: String, selected: Boolean, onPick: () -> Unit) {
+            addSubTrackRow(containerTracks, label, selected) {
+                onPick()
+                dialog.dismiss()
+            }
+        }
+        addTrack("关闭 / 禁用", noneSelected) {
+            MPVLib.setPropertyString("sid", "no")
+        }
+        for (track in tracks) {
+            addTrack(track.label, track.selected) {
+                MPVLib.setPropertyInt("sid", track.id)
+            }
+        }
+
+        dialog = AlertDialog.Builder(this)
+            .setView(view)
+            .setNegativeButton("关闭", null)
+            .create()
+
+        view.findViewById<View>(R.id.row_open_sub).setOnClickListener {
+            dialog.dismiss()
+            openExternalSubtitle()
+        }
+        view.findViewById<View>(R.id.row_sub_sync).setOnClickListener {
+            dialog.dismiss()
+            showSubSyncBar()
+        }
+        view.findViewById<View>(R.id.row_sub_speed).setOnClickListener {
+            dialog.dismiss()
+            showSubSpeedBar()
+        }
+        view.findViewById<View>(R.id.row_sub_custom).setOnClickListener {
+            dialog.dismiss()
+            showSubCustomDialog()
+        }
+        dialog.show()
+    }
+
+    private fun addSubTrackRow(
+        container: LinearLayout,
+        label: String,
+        selected: Boolean,
+        onClick: () -> Unit
+    ) {
+        val row = TextView(this).apply {
+            text = (if (selected) "●  " else "○  ") + label
+            setTextColor(if (selected) android.graphics.Color.parseColor("#3c8cf0") else android.graphics.Color.WHITE)
+            textSize = 15f
+            setPadding(8, 0, 8, 0)
+            height = (48 * resources.displayMetrics.density).toInt()
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setBackgroundResource(android.R.drawable.list_selector_background)
+            isClickable = true
+            isFocusable = true
+        }
+        row.setOnClickListener { onClick() }
+        container.addView(row)
+    }
+
+    private fun formatDelayText(seconds: Double): String {
+        if (seconds == 0.0) return "0秒"
+        val sign = if (seconds > 0) "+" else ""
+        val v = if (seconds == seconds.toInt().toDouble()) {
+            seconds.toInt().toString()
+        } else {
+            String.format(Locale.US, "%.1f", seconds)
+        }
+        return "$sign${v}秒"
+    }
+
+    // ---- 打开外挂字幕 ----
+    private fun openExternalSubtitle() {
+        subPickerLauncher.launch("*/*")
+    }
+
+    private fun addExternalSubtitle(uri: Uri) {
+        try {
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                ?: "subtitle.srt"
+            val dir = File(cacheDir, "subtitles").apply { mkdirs() }
+            val dest = File(dir, name)
+            contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+            MPVLib.command(arrayOf("sub-add", dest.absolutePath))
+            Toast.makeText(this, "已加载外挂字幕：$name", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "加载外挂字幕失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---- 字幕同步 / 速度悬浮条（字幕覆盖层内） ----
+    private fun setupSubtitleBars() {
+        findViewById<View>(R.id.btn_sync_minus).setOnClickListener {
+            val cur = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+            applySubSync(cur - 0.1)
+        }
+        findViewById<View>(R.id.btn_sync_plus).setOnClickListener {
+            val cur = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+            applySubSync(cur + 0.1)
+        }
+        findViewById<View>(R.id.btn_sync_close).setOnClickListener {
+            applySubSyncFromEdit()
+            subSyncBar.visibility = View.GONE
+        }
+        etSyncValue.setOnEditorActionListener { _, _, _ ->
+            applySubSyncFromEdit()
+            false
+        }
+        etSyncValue.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) applySubSyncFromEdit()
+        }
+
+        findViewById<View>(R.id.btn_sub_speed_minus).setOnClickListener {
+            val cur = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
+            applySubSpeed(cur - 0.05)
+        }
+        findViewById<View>(R.id.btn_sub_speed_plus).setOnClickListener {
+            val cur = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
+            applySubSpeed(cur + 0.05)
+        }
+        findViewById<View>(R.id.btn_sub_speed_close).setOnClickListener {
+            applySubSpeedFromEdit()
+            subSpeedBar.visibility = View.GONE
+        }
+        etSubSpeedValue.setOnEditorActionListener { _, _, _ ->
+            applySubSpeedFromEdit()
+            false
+        }
+        etSubSpeedValue.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) applySubSpeedFromEdit()
+        }
+    }
+
+    private fun showSubSyncBar() {
+        subSpeedBar.visibility = View.GONE
+        val cur = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+        etSyncValue.setText(formatSyncNumber(cur))
+        subSyncBar.visibility = View.VISIBLE
+    }
+
+    private fun applySubSync(value: Double) {
+        val v = value.coerceIn(-30.0, 30.0)
+        MPVLib.setPropertyDouble("sub-delay", v)
+        etSyncValue.setText(formatSyncNumber(v))
+    }
+
+    private fun applySubSyncFromEdit() {
+        val v = etSyncValue.text.toString().toDoubleOrNull() ?: return
+        applySubSync(v)
+    }
+
+    private fun formatSyncNumber(seconds: Double): String {
+        return if (seconds == seconds.toInt().toDouble()) {
+            seconds.toInt().toString()
+        } else {
+            String.format(Locale.US, "%.1f", seconds)
+        }
+    }
+
+    private fun showSubSpeedBar() {
+        subSyncBar.visibility = View.GONE
+        val cur = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
+        etSubSpeedValue.setText((cur * 100).toInt().toString())
+        subSpeedBar.visibility = View.VISIBLE
+    }
+
+    private fun applySubSpeed(value: Double) {
+        val v = value.coerceIn(0.25, 4.0)
+        MPVLib.setPropertyDouble("sub-speed", v)
+        etSubSpeedValue.setText((v * 100).toInt().toString())
+    }
+
+    private fun applySubSpeedFromEdit() {
+        val pct = etSubSpeedValue.text.toString().toDoubleOrNull() ?: return
+        applySubSpeed(pct / 100.0)
+    }
+
+    // ---- 字幕自定义面板 ----
+    private fun showSubCustomDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_sub_custom, null)
+        val B = PurePlayerSettingsBridge
+
+        val spAlign = view.findViewById<Spinner>(R.id.sp_sub_align)
+        val sbMarginY = view.findViewById<SeekBar>(R.id.sb_sub_margin_y)
+        val tvMarginY = view.findViewById<TextView>(R.id.tv_sub_margin_y)
+        val cbBack = view.findViewById<CheckBox>(R.id.cb_sub_back)
+        val spBackColor = view.findViewById<Spinner>(R.id.sp_sub_back_color)
+        val cbUseMargins = view.findViewById<CheckBox>(R.id.cb_sub_use_margins)
+        val spFont = view.findViewById<Spinner>(R.id.sp_sub_font)
+        val sbFontSize = view.findViewById<SeekBar>(R.id.sb_sub_font_size)
+        val tvFontSize = view.findViewById<TextView>(R.id.tv_sub_font_size)
+        val sbScale = view.findViewById<SeekBar>(R.id.sb_sub_scale)
+        val tvScale = view.findViewById<TextView>(R.id.tv_sub_scale)
+        val spColor = view.findViewById<Spinner>(R.id.sp_sub_color)
+        val cbBold = view.findViewById<CheckBox>(R.id.cb_sub_bold)
+        val cbShadow = view.findViewById<CheckBox>(R.id.cb_sub_shadow)
+        val spShadowColor = view.findViewById<Spinner>(R.id.sp_sub_shadow_color)
+        val cbBorder = view.findViewById<CheckBox>(R.id.cb_sub_border)
+        val spBorderColor = view.findViewById<Spinner>(R.id.sp_sub_border_color)
+        val sbBorderSize = view.findViewById<SeekBar>(R.id.sb_sub_border_size)
+        val tvBorderSize = view.findViewById<TextView>(R.id.tv_sub_border_size)
+
+        // 对齐：Spinner 顺序 底部/中部/顶部，对应 sub-align-y 2/1/0
+        val alignAdapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_item,
+            listOf("底部", "中部", "顶部")
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spAlign.adapter = alignAdapter
+        val alignVal = prefs.getInt(B.KEY_SUB_ALIGN, 2).coerceIn(0, 2)
+        spAlign.setSelection(2 - alignVal)
+        spAlign.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putInt(B.KEY_SUB_ALIGN, 2 - pos).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        // 底部边距 0..100
+        sbMarginY.progress = prefs.getInt(B.KEY_SUB_MARGIN_Y, 8).coerceIn(0, 100)
+        tvMarginY.text = sbMarginY.progress.toString()
+        sbMarginY.setOnSeekBarChangeListener(simpleSeek { progress ->
+            tvMarginY.text = progress.toString()
+            prefs.edit().putInt(B.KEY_SUB_MARGIN_Y, progress).apply()
+        })
+
+        // 背景
+        cbBack.isChecked = prefs.getBoolean(B.KEY_SUB_BACK_ENABLED, false)
+        spBackColor.adapter = colorAdapter(subBgColors)
+        spBackColor.setSelection(indexOfColor(subBgColors, prefs.getString(B.KEY_SUB_BACK_COLOR, "#CC000000")))
+        cbBack.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(B.KEY_SUB_BACK_ENABLED, checked).apply()
+        }
+        spBackColor.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putString(B.KEY_SUB_BACK_COLOR, subBgColors[pos].second).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        // 贴合视频
+        cbUseMargins.isChecked = prefs.getBoolean(B.KEY_SUB_USE_MARGINS, true)
+        cbUseMargins.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(B.KEY_SUB_USE_MARGINS, checked).apply()
+        }
+
+        // 字体
+        spFont.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_item,
+            subFonts.map { it.first }
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        val fontVal = prefs.getString(B.KEY_SUB_FONT, "") ?: ""
+        spFont.setSelection(subFonts.indexOfFirst { it.second == fontVal }.coerceAtLeast(0))
+        spFont.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putString(B.KEY_SUB_FONT, subFonts[pos].second).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        // 大小 12..72（SeekBar 0..60 + 12）
+        sbFontSize.progress = (prefs.getInt(B.KEY_SUB_FONT_SIZE, 32) - 12).coerceIn(0, 60)
+        tvFontSize.text = (sbFontSize.progress + 12).toString()
+        sbFontSize.setOnSeekBarChangeListener(simpleSeek { progress ->
+            val size = progress + 12
+            tvFontSize.text = size.toString()
+            prefs.edit().putInt(B.KEY_SUB_FONT_SIZE, size).apply()
+        })
+
+        // 缩放 50..200%（SeekBar 0..150 + 50）
+        sbScale.progress = (prefs.getInt(B.KEY_SUB_SCALE, 100) - 50).coerceIn(0, 150)
+        tvScale.text = "${sbScale.progress + 50}%"
+        sbScale.setOnSeekBarChangeListener(simpleSeek { progress ->
+            val scale = progress + 50
+            tvScale.text = "$scale%"
+            prefs.edit().putInt(B.KEY_SUB_SCALE, scale).apply()
+        })
+
+        // 颜色 + 加粗
+        spColor.adapter = colorAdapter(subTextColors)
+        spColor.setSelection(indexOfColor(subTextColors, prefs.getString(B.KEY_SUB_COLOR, "#FFFFFF")))
+        spColor.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putString(B.KEY_SUB_COLOR, subTextColors[pos].second).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        cbBold.isChecked = prefs.getBoolean(B.KEY_SUB_BOLD, false)
+        cbBold.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(B.KEY_SUB_BOLD, checked).apply()
+        }
+
+        // 文字背景（阴影色）
+        cbShadow.isChecked = prefs.getBoolean(B.KEY_SUB_SHADOW_ENABLED, false)
+        spShadowColor.adapter = colorAdapter(subBgColors)
+        spShadowColor.setSelection(indexOfColor(subBgColors, prefs.getString(B.KEY_SUB_SHADOW_COLOR, "#80000000")))
+        cbShadow.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(B.KEY_SUB_SHADOW_ENABLED, checked).apply()
+        }
+        spShadowColor.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putString(B.KEY_SUB_SHADOW_COLOR, subBgColors[pos].second).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        // 描边
+        cbBorder.isChecked = prefs.getBoolean(B.KEY_SUB_BORDER_ENABLED, true)
+        spBorderColor.adapter = colorAdapter(subTextColors)
+        spBorderColor.setSelection(indexOfColor(subTextColors, prefs.getString(B.KEY_SUB_BORDER_COLOR, "#000000")))
+        cbBorder.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(B.KEY_SUB_BORDER_ENABLED, checked).apply()
+        }
+        spBorderColor.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                prefs.edit().putString(B.KEY_SUB_BORDER_COLOR, subTextColors[pos].second).apply()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        sbBorderSize.progress = prefs.getInt(B.KEY_SUB_BORDER_SIZE, 2).coerceIn(0, 8)
+        tvBorderSize.text = sbBorderSize.progress.toString()
+        sbBorderSize.setOnSeekBarChangeListener(simpleSeek { progress ->
+            tvBorderSize.text = progress.toString()
+            prefs.edit().putInt(B.KEY_SUB_BORDER_SIZE, progress).apply()
+        })
+
+        AlertDialog.Builder(this)
+            .setTitle("字幕自定义")
+            .setView(view)
+            .setPositiveButton("确定", null)
+            .setNeutralButton("恢复默认") { _, _ -> resetSubCustom() }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun colorAdapter(colors: List<Pair<String, String>>): ArrayAdapter<String> {
+        return ArrayAdapter(
+            this, android.R.layout.simple_spinner_item,
+            colors.map { it.first }
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+    }
+
+    private fun indexOfColor(colors: List<Pair<String, String>>, value: String?): Int {
+        val idx = colors.indexOfFirst { it.second.equals(value, ignoreCase = true) }
+        return if (idx >= 0) idx else 0
+    }
+
+    private fun simpleSeek(onProgress: (Int) -> Unit): SeekBar.OnSeekBarChangeListener {
+        return object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) onProgress(progress)
+            }
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        }
+    }
+
+    /** 恢复字幕自定义默认值：清掉自定义键，桥接自动按默认值重新应用 */
+    private fun resetSubCustom() {
+        val B = PurePlayerSettingsBridge
+        prefs.edit().apply {
+            remove(B.KEY_SUB_ALIGN)
+            remove(B.KEY_SUB_MARGIN_Y)
+            remove(B.KEY_SUB_BACK_ENABLED)
+            remove(B.KEY_SUB_BACK_COLOR)
+            remove(B.KEY_SUB_USE_MARGINS)
+            remove(B.KEY_SUB_FONT)
+            remove(B.KEY_SUB_FONT_SIZE)
+            remove(B.KEY_SUB_SCALE)
+            remove(B.KEY_SUB_COLOR)
+            remove(B.KEY_SUB_BOLD)
+            remove(B.KEY_SUB_SHADOW_ENABLED)
+            remove(B.KEY_SUB_SHADOW_COLOR)
+            remove(B.KEY_SUB_BORDER_ENABLED)
+            remove(B.KEY_SUB_BORDER_COLOR)
+            remove(B.KEY_SUB_BORDER_SIZE)
+        }.apply()
+        settingsBridge.syncAll()
+        Toast.makeText(this, "字幕样式已恢复默认", Toast.LENGTH_SHORT).show()
     }
 
     private fun showAspectRatioDialog() {

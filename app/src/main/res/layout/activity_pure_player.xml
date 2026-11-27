@@ -25,6 +25,167 @@
         android:layout_height="match_parent"
         android:layout_gravity="center" />
 
+    <!-- 1.5 字幕覆盖层（MX 风格，独立于控制层）：字幕同步 / 字幕速度悬浮条 -->
+    <FrameLayout
+        android:id="@+id/subtitle_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- 字幕同步悬浮条 -->
+        <LinearLayout
+            android:id="@+id/sub_sync_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="130dp"
+            android:background="#CC000000"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="8dp"
+                android:text="同步"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btn_sync_minus"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="−"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp" />
+
+            <EditText
+                android:id="@+id/et_sync_value"
+                android:layout_width="64dp"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:gravity="center"
+                android:inputType="numberSigned|numberDecimal"
+                android:text="0"
+                android:textColor="#CCCCCC"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="秒"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_sync_plus"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="+"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp" />
+
+            <TextView
+                android:id="@+id/btn_sync_close"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="✕"
+                android:textColor="#CCCCCC"
+                android:textSize="18sp" />
+        </LinearLayout>
+
+        <!-- 字幕速度悬浮条 -->
+        <LinearLayout
+            android:id="@+id/sub_speed_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="130dp"
+            android:background="#CC000000"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="8dp"
+                android:text="速度"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/btn_sub_speed_minus"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="−"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp" />
+
+            <EditText
+                android:id="@+id/et_sub_speed_value"
+                android:layout_width="64dp"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:gravity="center"
+                android:inputType="numberDecimal"
+                android:text="100"
+                android:textColor="#CCCCCC"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="%"
+                android:textColor="#CCCCCC"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_sub_speed_plus"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="+"
+                android:textColor="#FFFFFF"
+                android:textSize="22sp" />
+
+            <TextView
+                android:id="@+id/btn_sub_speed_close"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:text="✕"
+                android:textColor="#CCCCCC"
+                android:textSize="18sp" />
+        </LinearLayout>
+    </FrameLayout>
+
     <!-- 2. 主控制覆盖层（对应原 screen.xml 的 RelativeLayout 控制容器） -->
     <RelativeLayout
         android:id="@+id/player_overlay"
