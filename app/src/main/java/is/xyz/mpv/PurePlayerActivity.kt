@@ -82,7 +82,6 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         private const val PREF_GESTURE_SWAP = "gesture_swap"
         private const val PREF_SHUFFLE = "shuffle"
         private const val PREF_BACKGROUND_PLAY = "background_play"
-        private const val PREF_ROTATION_LOCKED = "rotation_locked"
         // 首页“上次播放标记 / 悬浮继续播放 / 播放历史”用的记录
         const val PREF_LAST_PLAYED_PATH = "last_played_path"
         const val PREF_HISTORY_PATHS = "play_history_paths"
@@ -208,7 +207,6 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var loopMode = 0
     private var isMuted = false
     private var backgroundPlayEnabled = false
-    private var rotationLocked = false
 
     // ---- 控制层自动隐藏：无操作几秒后连同顶部菜单一排一起隐藏，点一下再出现 ----
     private val controlsHideHandler = Handler(Looper.getMainLooper())
@@ -272,12 +270,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         shuffleEnabled = prefs.getBoolean(PREF_SHUFFLE, false)
         backgroundPlayEnabled = prefs.getBoolean(PREF_BACKGROUND_PLAY, false)
         quickZoomEnabled = prefs.getBoolean("quick_zoom", true)
-        rotationLocked = prefs.getBoolean(PREF_ROTATION_LOCKED, false)
-        if (rotationLocked) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            applyOrientationSetting()
-        }
+        applyOrientationSetting()
 
         bindViews()
         // 保持屏幕开启：设置关时允许系统按超时熄屏（布局里默认是 true）
@@ -910,7 +903,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                 backgroundPlayEnabled
             ),
             PlayerMenuItem(
-                "rotation", "屏幕旋转", R.drawable.ic_screen_rotate, rotationLocked
+                "rotation", "屏幕旋转", R.drawable.ic_screen_rotate,
+                prefs.getString("player_orientation", "system") != "system"
             )
         )
     }
@@ -931,7 +925,7 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             "speed" -> cycleSpeed()
             "screenshot" -> takeScreenshot()
             "background" -> toggleBackgroundPlay()
-            "rotation" -> toggleRotationLock()
+            "rotation" -> cycleOrientation()
         }
         // 点了顶部菜单也算一次操作，重新开始自动隐藏计时
         scheduleControlsHide()
@@ -1172,25 +1166,24 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     }
 
     // ---- 屏幕旋转 ----
-    private fun toggleRotationLock() {
-        rotationLocked = !rotationLocked
-        prefs.edit().putBoolean(PREF_ROTATION_LOCKED, rotationLocked).apply()
-        if (rotationLocked) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            applyOrientationSetting()
-        }
-        Toast.makeText(
-            this,
-            if (rotationLocked) "已锁定横屏" else "屏幕旋转已恢复跟随系统",
-            Toast.LENGTH_SHORT
-        ).show()
+    // 顶部菜单“屏幕旋转”：在跟随系统 / 锁定横屏 / 锁定竖屏 / 跟随视频之间循环，
+    // 每点一次切一个并 Toast 当前模式。
+    //（之前是“锁定横屏”开关，但 manifest 写死了 sensorLandscape，关了也回不去，
+    // 看起来像点了没反应；循环 + 去掉 manifest 的写死才能真正切换。）
+    private fun cycleOrientation() {
+        val modes = arrayOf("system", "landscape", "portrait", "video")
+        val names = arrayOf("跟随系统", "锁定横屏", "锁定竖屏", "跟随视频")
+        val cur = prefs.getString("player_orientation", "system") ?: "system"
+        val next = (modes.indexOf(cur).takeIf { it >= 0 } ?: 0) + 1
+        val idx = next % modes.size
+        prefs.edit().putString("player_orientation", modes[idx]).apply()
+        applyOrientationSetting()
+        Toast.makeText(this, "屏幕方向：${names[idx]}", Toast.LENGTH_SHORT).show()
         refreshMenu()
     }
 
     /** 设置里的方向：跟随系统 / 横屏 / 竖屏 / 跟随视频（按视频宽高比定） */
     private fun applyOrientationSetting() {
-        if (rotationLocked) return
         when (prefs.getString("player_orientation", "system")) {
             "landscape" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             "portrait" -> requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -1201,7 +1194,6 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     /** 跟随视频：按当前视频宽高比定方向；参数还没就绪时不动（时长回调里再试） */
     private fun applyVideoOrientation() {
-        if (rotationLocked) return
         if (prefs.getString("player_orientation", "system") != "video") return
         val w = MPVLib.getPropertyInt("video-params/w") ?: 0
         val h = MPVLib.getPropertyInt("video-params/h") ?: 0
