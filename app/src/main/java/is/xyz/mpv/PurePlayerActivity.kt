@@ -80,6 +80,9 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         private const val PREF_SHUFFLE = "shuffle"
         private const val PREF_BACKGROUND_PLAY = "background_play"
         private const val PREF_ROTATION_LOCKED = "rotation_locked"
+        // 首页“上次播放标记 / 悬浮继续播放 / 播放历史”用的记录
+        const val PREF_LAST_PLAYED_PATH = "last_played_path"
+        const val PREF_HISTORY_PATHS = "play_history_paths"
 
         // 控制层无操作多久后自动隐藏（毫秒）
         private const val CONTROLS_DISPLAY_TIMEOUT = 4000L
@@ -212,6 +215,8 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var playlistIndex = 0
     private var playlistFolder: String? = null
     private var currentVideoPath: String? = null
+    // 多选播放时由调用方直接给一列视频（不按文件夹重查）
+    private var isCustomPlaylist = false
 
     private data class TrackItem(
         val id: Int,
@@ -288,9 +293,17 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             val title = mediaUri.lastPathSegment ?: "本地视频"
             playVideo(mediaUri.toString(), title)
         } else {
-            val fallbackPath = intent?.getStringExtra("video_path")
-            if (!fallbackPath.isNullOrBlank()) {
-                playVideo(fallbackPath, fallbackPath.substringAfterLast('/'))
+            // 多选播放：调用方给一列 content:// 地址 + 起始下标
+            val uris = intent?.getStringArrayListExtra("video_uris")
+            if (!uris.isNullOrEmpty()) {
+                val startIndex = intent.getIntExtra("video_index", 0)
+                    .coerceIn(0, uris.size - 1)
+                setupCustomPlaylist(uris, startIndex)
+            } else {
+                val fallbackPath = intent?.getStringExtra("video_path")
+                if (!fallbackPath.isNullOrBlank()) {
+                    playVideo(fallbackPath, fallbackPath.substringAfterLast('/'))
+                }
             }
         }
     }
@@ -446,6 +459,9 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
+        // 记录上次播放（首页“上次播放标记 / 悬浮按钮 / 播放历史”用）
+        currentVideoPath?.takeIf { it.startsWith("/") }?.let { saveLastPlayed(it) }
+
         tvTitle.text = title
         // 换片重置 A-B 循环与进度
         abState = 0
@@ -463,20 +479,74 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         scheduleControlsHide()
     }
 
-    /** content:// Uri 在 MediaStore 里对应的文件路径（用于找同文件夹视频），拿不到返回 null */
-    private fun filePathOfContentUri(uri: Uri): String? {
+    /** content:// Uri 在 MediaStore 里对应的文件路径与显示名，拿不到返回 null */
+    private fun videoInfoOfContentUri(uri: Uri): Pair<String?, String?> {
         return try {
             contentResolver.query(
-                uri, arrayOf(MediaStore.Video.Media.DATA), null, null, null
+                uri,
+                arrayOf(MediaStore.Video.Media.DATA, MediaStore.Video.Media.DISPLAY_NAME),
+                null, null, null
             )?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(MediaStore.Video.Media.DATA)
-                    if (idx >= 0) cursor.getString(idx) else null
-                } else null
-            }
+                    val dataIdx = cursor.getColumnIndex(MediaStore.Video.Media.DATA)
+                    val nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                    val p = if (dataIdx >= 0) cursor.getString(dataIdx) else null
+                    val n = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                    p to n
+                } else {
+                    null to null
+                }
+            } ?: (null to null)
         } catch (_: Exception) {
-            null
+            null to null
         }
+    }
+
+    /** content:// Uri 在 MediaStore 里对应的文件路径（用于找同文件夹视频），拿不到返回 null */
+    private fun filePathOfContentUri(uri: Uri): String? = videoInfoOfContentUri(uri).first
+
+    /** 记录上次播放：最新一条 + 最近 20 条历史（去重，最新的在前） */
+    private fun saveLastPlayed(path: String) {
+        try {
+            prefs.edit().putString(PREF_LAST_PLAYED_PATH, path).apply()
+            val raw = prefs.getString(PREF_HISTORY_PATHS, null)
+            val arr = if (raw.isNullOrBlank()) JSONArray() else JSONArray(raw)
+            val list = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val p = arr.optString(i)
+                if (p.isNotBlank() && p != path) list.add(p)
+            }
+            list.add(0, path)
+            val out = JSONArray()
+            list.take(20).forEach { out.put(it) }
+            prefs.edit().putString(PREF_HISTORY_PATHS, out.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * 多选播放：调用方直接给一列视频地址，按给定顺序播。
+     * 之后的上一个/下一个、播完自动进下一个都走这列，不按文件夹重查。
+     */
+    private fun setupCustomPlaylist(uris: List<String>, startIndex: Int) {
+        isCustomPlaylist = true
+        playlistFolder = null
+        folderPlaylist = uris.map { uriString ->
+            if (uriString.startsWith("content://")) {
+                val uri = Uri.parse(uriString)
+                val (path, name) = videoInfoOfContentUri(uri)
+                FolderVideo(
+                    path ?: uriString,
+                    uriString,
+                    name ?: uriString.substringAfterLast('/')
+                )
+            } else {
+                FolderVideo(uriString, uriString, uriString.substringAfterLast('/'))
+            }
+        }
+        playlistIndex = startIndex.coerceIn(folderPlaylist.indices)
+        val first = folderPlaylist[playlistIndex]
+        playVideo(first.contentUri, first.name)
     }
 
     /** 构建当前视频所在文件夹的播放列表（按文件名排序），同一文件夹时复用不重复查 */
@@ -486,6 +556,11 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
             folderPlaylist = emptyList()
             playlistIndex = 0
             playlistFolder = null
+            return
+        }
+        // 自定义播放列表（多选播放）：不按文件夹重查，只更新当前下标
+        if (isCustomPlaylist) {
+            playlistIndex = folderPlaylist.indexOfFirst { it.path == currentPath }.coerceAtLeast(0)
             return
         }
         val folder = File(currentPath).parent
