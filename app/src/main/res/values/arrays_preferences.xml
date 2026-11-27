@@ -81,6 +81,19 @@
         <item>light</item>
     </string-array>
 
+    <string-array name="entries_home_new_badge_days">
+        <item>不显示</item>
+        <item>1 天</item>
+        <item>3 天</item>
+        <item>7 天</item>
+    </string-array>
+    <string-array name="values_home_new_badge_days">
+        <item>0</item>
+        <item>1</item>
+        <item>3</item>
+        <item>7</item>
+    </string-array>
+
     <string-array name="entries_home_default_view">
         <item>列表</item>
         <item>网格</item>

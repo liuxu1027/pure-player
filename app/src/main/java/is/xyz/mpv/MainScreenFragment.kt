@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -44,6 +45,7 @@ import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import org.json.JSONArray
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -63,6 +65,11 @@ private const val KEY_FIELD_DATE = "home_field_date"
 private const val KEY_SHOW_LENGTH_ON_THUMB = "home_show_length_on_thumb"
 private const val KEY_SHOW_HIDDEN = "home_show_hidden"
 private const val KEY_RECOGNIZE_NOMEDIA = "home_recognize_nomedia"
+private const val KEY_NEW_BADGE_DAYS = "home_new_badge_days"
+private const val KEY_MARK_LAST_PLAYED = "home_mark_last_played"
+private const val KEY_SCROLL_TO_LAST = "home_scroll_to_last"
+private const val KEY_FLOATING_RESUME = "home_floating_resume"
+private const val KEY_SHOW_HISTORY = "home_show_history"
 private const val KEY_SHOW_NEW_BADGE = "home_show_new_badge"
 
 private const val VIEW_ALL_FOLDERS = "all_folders"
@@ -492,6 +499,21 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         val items = buildItems()
         adapter.submit(items)
 
+        // 悬浮继续播放按钮：有上次播放的视频才显示
+        val lastPath = prefs.getString(PurePlayerActivity.PREF_LAST_PLAYED_PATH, null)
+        val lastVideo = allVideos.firstOrNull { it.path == lastPath }
+        val showFab = prefs.getBoolean(KEY_FLOATING_RESUME, true) && lastVideo != null
+        binding.fabResume.isVisible = showFab
+        if (showFab) {
+            binding.fabResume.setOnClickListener { lastVideo?.let { playFile(it.uri) } }
+        }
+
+        // 滚动到上次播放：上次看的视频在当前列表里才滚
+        if (prefs.getBoolean(KEY_SCROLL_TO_LAST, false) && lastPath != null) {
+            val pos = items.indexOfFirst { (it as? HomeListItem.Video)?.item?.path == lastPath }
+            if (pos >= 0) binding.mediaList.post { binding.mediaList.scrollToPosition(pos) }
+        }
+
         if (items.isEmpty()) {
             binding.mediaList.isVisible = false
             binding.emptyView.isVisible = true
@@ -530,9 +552,19 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
             Tab.LOCAL -> {
                 val folder = currentFolder
                 if (folder == null) {
-                    val list = if (query.isEmpty()) folders
-                    else folders.filter { it.name.contains(query, ignoreCase = true) }
-                    list.map { HomeListItem.Folder(it) }
+                    buildList {
+                        // 最近播放：本地页顶部先放最近看过的视频（按播放历史顺序，最多 8 条）
+                        if (query.isEmpty() && prefs.getBoolean(KEY_SHOW_HISTORY, false)) {
+                            val history = recentHistoryVideos()
+                            if (history.isNotEmpty()) {
+                                add(HomeListItem.SectionHeader(getString(R.string.history_title)))
+                                history.forEach { add(HomeListItem.Video(it)) }
+                            }
+                        }
+                        val list = if (query.isEmpty()) folders
+                        else folders.filter { it.name.contains(query, ignoreCase = true) }
+                        list.forEach { add(HomeListItem.Folder(it)) }
+                    }
                 } else {
                     val target = folders.find { it.name == folder }
                     val list = target?.videos ?: emptyList()
@@ -542,6 +574,25 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 }
             }
         }
+    }
+
+    /** 最近播放：按播放历史里的顺序（最新在前），最多 8 条，只取还在媒体库里的 */
+    private fun recentHistoryVideos(): List<VideoItem> {
+        val raw = prefs.getString(PurePlayerActivity.PREF_HISTORY_PATHS, null) ?: return emptyList()
+        val paths = try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val byPath = allVideos.associateBy { it.path }
+        return paths.mapNotNull { byPath[it] }.take(8)
+    }
+
+    /** “NEW”角标窗口（秒）：设置里的“NEW 标签显示时长”，0 = 不显示 */
+    private fun newWindowSec(): Long {
+        val days = prefs.getString(KEY_NEW_BADGE_DAYS, "3")?.toIntOrNull() ?: 3
+        return days.toLong() * 24 * 3600
     }
 
     private fun mineItems(): List<HomeListItem> {
@@ -717,7 +768,7 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         }
         allVideos = sortVideos(filtered)
         val nowSec = System.currentTimeMillis() / 1000
-        val newThreshold = nowSec - NEW_WINDOW_SEC
+        val newThreshold = nowSec - newWindowSec()
         val grouped = allVideos.groupBy { it.folder }
         folders = sortFolders(
             grouped.entries.map { (name, list) ->
@@ -1122,7 +1173,6 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
         private const val TAG = "mpv"
         private const val ACCENT_BLUE = "#3c8cf0"
         private const val NAV_NORMAL = "#757575"
-        private const val NEW_WINDOW_SEC = 3 * 24 * 3600L
     }
 }
 
@@ -1152,6 +1202,7 @@ private data class FolderItem(
 private sealed class HomeListItem {
     data class Folder(val item: FolderItem) : HomeListItem()
     data class Video(val item: VideoItem) : HomeListItem()
+    data class SectionHeader(val title: String) : HomeListItem()
     data class Mine(val action: MineAction, val title: String, val subtitle: String, val iconRes: Int) : HomeListItem()
 }
 
@@ -1186,6 +1237,7 @@ private class HomeAdapter(
     override fun getItemViewType(position: Int): Int = when (items[position]) {
         is HomeListItem.Folder -> TYPE_FOLDER
         is HomeListItem.Video -> TYPE_VIDEO
+        is HomeListItem.SectionHeader -> TYPE_HEADER
         is HomeListItem.Mine -> TYPE_MINE
     }
 
@@ -1199,6 +1251,18 @@ private class HomeAdapter(
             TYPE_VIDEO -> {
                 val v = inflater.inflate(R.layout.item_media_video, parent, false)
                 VideoViewHolder(v, onVideoClick, onVideoLongClick, onVideoMoreClick)
+            }
+            TYPE_HEADER -> {
+                val tv = TextView(parent.context).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        RecyclerView.LayoutParams.MATCH_PARENT,
+                        RecyclerView.LayoutParams.WRAP_CONTENT
+                    )
+                    setPadding(48, 32, 48, 8)
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                }
+                HeaderViewHolder(tv)
             }
             else -> {
                 val v = inflater.inflate(R.layout.item_mine, parent, false)
@@ -1215,7 +1279,14 @@ private class HomeAdapter(
                 selectionMode,
                 selectedIds.contains(item.item.id)
             )
+            is HomeListItem.SectionHeader -> (holder as HeaderViewHolder).bind(item)
             is HomeListItem.Mine -> (holder as MineViewHolder).bind(item)
+        }
+    }
+
+    private class HeaderViewHolder(private val textView: TextView) : RecyclerView.ViewHolder(textView) {
+        fun bind(item: HomeListItem.SectionHeader) {
+            textView.text = item.title
         }
     }
 
@@ -1280,7 +1351,14 @@ private class HomeAdapter(
             } else {
                 item.name.substringBeforeLast('.', item.name)
             }
-            videoMeta.text = buildMeta(item, prefs)
+            // 上次播放标记：是上次看的视频时在第二行末尾标出
+            val meta = buildMeta(item, prefs)
+            val lastPath = prefs.getString(PurePlayerActivity.PREF_LAST_PLAYED_PATH, null)
+            videoMeta.text = if (prefs.getBoolean(KEY_MARK_LAST_PLAYED, true) && lastPath != null && item.path == lastPath) {
+                itemView.context.getString(R.string.last_played_mark) + "  " + meta
+            } else {
+                meta
+            }
             // 缩略图 + 时长角标（按弹窗“字段 / 高级”里的开关）
             val showThumb = prefs.getBoolean(KEY_FIELD_THUMB, true)
             thumbWrap.isVisible = showThumb
@@ -1320,6 +1398,7 @@ private class HomeAdapter(
         private const val TYPE_FOLDER = 0
         private const val TYPE_VIDEO = 1
         private const val TYPE_MINE = 2
+        private const val TYPE_HEADER = 3
     }
 }
 

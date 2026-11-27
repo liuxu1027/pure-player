@@ -2,18 +2,69 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <ListPreference
-        app:defaultValue="list"
-        app:entries="@array/entries_home_default_view"
-        app:entryValues="@array/values_home_default_view"
-        app:key="home_default_view"
-        app:title="默认视图"
-        app:useSimpleSummaryProvider="true" />
+    <PreferenceCategory
+        app:title="外观">
 
-    <CheckBoxPreference
-        app:defaultValue="true"
-        app:key="home_show_new_badge"
-        app:summary="在文件夹上显示最近新增视频的数量角标"
-        app:title="显示“新视频”角标" />
+        <ListPreference
+            app:defaultValue="list"
+            app:entries="@array/entries_home_default_view"
+            app:entryValues="@array/values_home_default_view"
+            app:key="home_default_view"
+            app:title="默认视图"
+            app:useSimpleSummaryProvider="true" />
 
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="home_show_new_badge"
+            app:summary="在文件夹上显示最近新增视频的数量角标"
+            app:title="显示“新视频”角标" />
+
+        <ListPreference
+            app:defaultValue="3"
+            app:entries="@array/entries_home_new_badge_days"
+            app:entryValues="@array/values_home_new_badge_days"
+            app:key="home_new_badge_days"
+            app:title="“NEW”标签显示时长"
+            app:useSimpleSummaryProvider="true" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="home_mark_last_played"
+            app:summary="在上次播放过的视频后面标出"
+            app:title="上次播放标记" />
+
+        <CheckBoxPreference
+            app:defaultValue="false"
+            app:key="home_scroll_to_last"
+            app:summary="打开列表时自动滚到上次播放的视频"
+            app:title="滚动到上次播放" />
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="home_floating_resume"
+            app:summary="在右下角显示继续播放按钮，点一下接着上次看"
+            app:title="悬浮继续播放按钮" />
+
+        <CheckBoxPreference
+            app:defaultValue="false"
+            app:key="home_show_history"
+            app:summary="在本地页顶部显示最近播放过的视频"
+            app:title="显示本地播放历史" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:title="扫描">
+
+        <CheckBoxPreference
+            app:defaultValue="true"
+            app:key="home_recognize_nomedia"
+            app:summary="含有 .nomedia 文件的文件夹不显示"
+            app:title="识别 .nomedia" />
+
+        <CheckBoxPreference
+            app:defaultValue="false"
+            app:key="home_show_hidden"
+            app:summary="显示隐藏文件和文件夹"
+            app:title="显示隐藏文件和文件夹" />
+    </PreferenceCategory>
 </PreferenceScreen>

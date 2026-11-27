@@ -233,4 +233,9 @@
     <string name="rename_failed">重命名失败</string>
     <string name="rename_empty">名字不能为空</string>
     <string name="properties_title">属性</string>
+
+    <!-- List settings -->
+    <string name="history_title">最近播放</string>
+    <string name="fab_resume">继续播放</string>
+    <string name="last_played_mark">▶上次播放</string>
 </resources>
