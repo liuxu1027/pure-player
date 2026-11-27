@@ -743,12 +743,13 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     /**
      * 显示控制层（含顶部菜单一排 rv_quick_actions，它在 player_overlay 里面，
-     * 跟着控制层一起显示/隐藏），同时显示系统栏，并重新开始自动隐藏计时。
+     * 跟着控制层一起显示/隐藏），并重新开始自动隐藏计时。
+     * 不碰系统栏：点一下只出控制层；系统栏只由屏幕边缘下滑临时唤出
+     * （BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE）。
      */
     private fun showControls() {
         if (isLocked) return
         playerOverlay.visibility = View.VISIBLE
-        insetsController.show(WindowInsetsCompat.Type.systemBars())
         updateBigPlayVisibility()
         scheduleControlsHide()
     }
