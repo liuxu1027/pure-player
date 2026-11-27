@@ -43,7 +43,7 @@ import java.util.Locale
  * MX-style home screen: folder list first, two-level navigation.
  *
  * Tabs (bottom nav): Local (folders) / All (flat video list) / Mine (settings & about).
- * Top bar: title + All / Search / List-grid toggle.
+ * Top bar: title + Open / All / Search / View toggle.
  * Tapping a folder opens its videos; tapping a video plays it in PurePlayerActivity.
  */
 class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
@@ -160,6 +160,8 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
 
         // top bar
         binding.backBtn.setOnClickListener { goBackToFolders() }
+        binding.openBtn.text = "+ 打开"
+        binding.openBtn.setOnClickListener { showOpenMenu() }
         binding.allBtn.setOnClickListener { switchTab(Tab.ALL) }
         binding.searchBtn.setOnClickListener { toggleSearch() }
         binding.viewBtn.setOnClickListener { toggleViewMode() }
@@ -352,30 +354,6 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
             }
             add(
                 HomeListItem.Mine(
-                    MineAction.OPEN_FILE,
-                    getString(R.string.home_mine_open_file),
-                    getString(R.string.home_mine_open_file_sub),
-                    R.drawable.ic_folder
-                )
-            )
-            add(
-                HomeListItem.Mine(
-                    MineAction.OPEN_URL,
-                    getString(R.string.home_mine_open_url),
-                    getString(R.string.home_mine_open_url_sub),
-                    R.drawable.ic_video
-                )
-            )
-            add(
-                HomeListItem.Mine(
-                    MineAction.OPEN_DOC_TREE,
-                    getString(R.string.home_mine_open_doc_tree),
-                    getString(R.string.home_mine_open_doc_tree_sub),
-                    R.drawable.ic_folder
-                )
-            )
-            add(
-                HomeListItem.Mine(
                     MineAction.ABOUT,
                     getString(R.string.home_mine_about),
                     getString(R.string.home_mine_about_sub),
@@ -383,6 +361,25 @@ class MainScreenFragment : Fragment(R.layout.fragment_main_screen) {
                 )
             )
         }
+    }
+
+    /** Top-bar "+ 打开" menu: the open actions moved out of Mine, reusing their handlers. */
+    private fun showOpenMenu() {
+        val items = arrayOf(
+            getString(R.string.home_mine_open_file),
+            getString(R.string.home_mine_open_url),
+            getString(R.string.home_mine_open_doc_tree)
+        )
+        val actions = arrayOf(
+            MineAction.OPEN_FILE,
+            MineAction.OPEN_URL,
+            MineAction.OPEN_DOC_TREE
+        )
+        AlertDialog.Builder(requireContext())
+            .setTitle("打开")
+            .setItems(items) { _, which -> onMineAction(actions[which]) }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
     }
 
     private fun onMineAction(action: MineAction) {
