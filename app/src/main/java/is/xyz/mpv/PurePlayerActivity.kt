@@ -192,6 +192,9 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var videoPanY = 0.0
     // 画面比例循环下标（0=适应屏幕，见 cycleAspectRatio）；换片时复位
     private var aspectRatioIndex = 0
+    // 平移锚点：放大后单指拖动的上一位置（NaN=未在拖动）
+    private var panLastX = Float.NaN
+    private var panLastY = Float.NaN
     private var quickZoomEnabled = true
     private lateinit var scaleGestureDetector: ScaleGestureDetector
 
@@ -1692,6 +1695,64 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         Toast.makeText(this, "画面比例：$label", Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * 已放大时的单指平移（抓取式：手指往哪走画面跟到哪）。
+     * 直接在触摸监听里处理，不走 GestureDetector.onScroll——捏合结束、
+     * 只剩一指继续拖时 GestureDetector 不再派发 onScroll，平移会丢事件。
+     * ACTION_DOWN 只记锚点不消费（单击/双击还要走 GestureDetector）；
+     * 只有真正拖动的 MOVE 才消费，避免顶掉点按。
+     */
+    private fun handleZoomPan(event: MotionEvent): Boolean {
+        if (isLocked || !quickZoomEnabled) return false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (videoZoom > 0) {
+                    panLastX = event.x
+                    panLastY = event.y
+                }
+                return false
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // 第二指落下：进捏合/双指手势，平移锚点失效
+                panLastX = Float.NaN
+                panLastY = Float.NaN
+                return false
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 一指抬起：剩下的那指重新记锚点，接着拖能继续平移
+                if (videoZoom > 0 && event.pointerCount == 2) {
+                    val rest = if (event.actionIndex == 0) 1 else 0
+                    panLastX = event.getX(rest)
+                    panLastY = event.getY(rest)
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (videoZoom <= 0 || event.pointerCount != 1) return false
+                if (panLastX.isNaN() || panLastY.isNaN()) {
+                    panLastX = event.x
+                    panLastY = event.y
+                    return true
+                }
+                val w = mpvView.width.toFloat().coerceAtLeast(1f)
+                val h = mpvView.height.toFloat().coerceAtLeast(1f)
+                videoPanX = (videoPanX + (event.x - panLastX) / w).coerceIn(-1.0, 1.0)
+                videoPanY = (videoPanY + (event.y - panLastY) / h).coerceIn(-1.0, 1.0)
+                panLastX = event.x
+                panLastY = event.y
+                MPVLib.setPropertyDouble("video-pan-x", videoPanX)
+                MPVLib.setPropertyDouble("video-pan-y", videoPanY)
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                panLastX = Float.NaN
+                panLastY = Float.NaN
+                return false
+            }
+            else -> return false
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun setupGestures() {
         // 捏合缩放：video-zoom 按 log2 计（0=贴合，3=8 倍），夹在 [0, 3]
@@ -1829,6 +1890,9 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
         mpvView.setOnTouchListener { _, event ->
             // 捏合缩放先喂给 ScaleGestureDetector（它只对双指张合有反应）
             scaleGestureDetector.onTouchEvent(event)
+            // 已放大时单指拖动直接平移：不经过 GestureDetector
+            //（捏合结束、只剩一指继续拖时 GestureDetector 不再派发 onScroll，平移会丢事件）
+            if (handleZoomPan(event)) return@setOnTouchListener true
             // 双指字幕手势优先：接管了就不走单击/双击/单指滑动
             if (handleSubGesture(event)) return@setOnTouchListener true
             gestureDetector.onTouchEvent(event)
