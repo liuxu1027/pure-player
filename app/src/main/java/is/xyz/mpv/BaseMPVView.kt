@@ -57,10 +57,19 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
     private var filePath: String? = null
 
     /**
-     * Set the first file to be played once the player is ready.
+     * Play a file. If the surface is already attached (a file is playing or
+     * mpv is idle after one), issue loadfile immediately; otherwise remember
+     * the path and let surfaceCreated() load it once the surface appears.
+     * The old code only stored the path, so playNext()/playPrev() (and the
+     * EOF auto-advance) only changed the title — the video never switched,
+     * because surfaceCreated() never fires again for an existing surface.
      */
     fun playFile(filePath: String) {
         this.filePath = filePath
+        if (holder.surface.isValid) {
+            MPVLib.command(arrayOf("loadfile", filePath))
+            this.filePath = null
+        }
     }
 
     private var voInUse: String = "gpu"

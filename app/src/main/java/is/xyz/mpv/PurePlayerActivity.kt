@@ -1747,11 +1747,17 @@ class PurePlayerActivity : AppCompatActivity(), MPVLib.EventObserver {
                     ignoreNextEndFile = false
                     return
                 }
-                // 单只循环由 mpv loop-file 处理；循环关时不处理
-                if (loopMode != 1) return
+                // 单只循环（loopMode 2）由 mpv loop-file 处理；其余模式播完自动进下一个：
+                // 随机或列表循环（1）继续往下播（列表循环到末尾回到开头）；
+                // 循环关（0）播到最后一个就停，不再往回绕
+                if (loopMode == 2) return
                 runOnUiThread {
-                    // 只有一个视频时不提示、不切歌
-                    if (folderPlaylist.size >= 2) playNext()
+                    if (folderPlaylist.size < 2) return@runOnUiThread
+                    if (shuffleEnabled || loopMode == 1) {
+                        playNext()
+                    } else if (playlistIndex + 1 < folderPlaylist.size) {
+                        playAt(playlistIndex + 1)
+                    }
                 }
             }
         }
